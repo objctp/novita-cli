@@ -68,10 +68,10 @@ function test_template_list_routes_to_the_v2_templates_path() {
   assert_contains "GET /templates" "$(<"$CAP_CAPTURE")"
 }
 
-function test_template_create_posts_name_and_image() {
+function test_template_create_posts_name_type_and_image() {
   local out
-  CAP_STUB_BODY='{"id":"tpl-1"}'
-  out="$(nv::cmd_template create --name t1 --image nginx 2>/dev/null)"
+  CAP_STUB_BODY='{"template_id":"tpl-1"}'
+  out="$(nv::cmd_template create --name t1 --type instance --image nginx 2>/dev/null)"
   assert_equals "tpl-1" "$out"
   assert_contains "POST /templates" "$(<"$CAP_CAPTURE")"
 }

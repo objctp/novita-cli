@@ -56,6 +56,6 @@ function test_unknown_verb_reports_no_match() {
 
 function test_doc_page_marks_unverified_routes() {
   local out
-  out="$(nv::cmd_doc template create)"
+  out="$(nv::cmd_doc serverless update)"
   assert_contains "route unverified" "$out"
 }

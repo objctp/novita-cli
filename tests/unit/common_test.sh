@@ -50,6 +50,13 @@ function test_extract_id_from_object_response() {
   assert_equals "abc-1" "$out"
 }
 
+# v2 template create/update answer {"template_id": …}, not {"id": …}.
+function test_extract_id_from_template_id_response() {
+  local out=""
+  nv::extract_id out '{"template_id":"tpl-001"}' template
+  assert_equals "tpl-001" "$out"
+}
+
 # v1 network-storage create answers a BARE JSON STRING — the id IS the body.
 function test_extract_id_from_bare_string_response() {
   local out=""

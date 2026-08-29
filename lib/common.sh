@@ -196,8 +196,9 @@ nv::require_id() {
 
 # Extract the new record's id from a create response body, or die with a clear
 # error. Novita's create responses vary by namespace: v2 instance/endpoint
-# creates answer {"id": "..."}, whilst the v1 network-storage create answers a
-# BARE JSON STRING ("storage-id"). Both forms are handled here.
+# creates answer {"id": "..."}, v2 template create/update answer
+# {"template_id": "..."}, whilst the v1 network-storage create answers a BARE
+# JSON STRING ("storage-id"). All three forms are handled here.
 # Arguments:
 #   $1 - out: caller's variable name (nameref) to receive the id
 #   $2 - body: the JSON response body
@@ -211,8 +212,9 @@ nv::extract_id() {
   local -n extract_id_out="$1"
   local body="$2" label="$3"
   # A bare string body IS the id (v1 network-storage create); an object's .id
-  # wins otherwise. `select(.)` keeps empty strings from slipping through.
-  extract_id_out="$(printf '%s' "$body" | jq -r 'if type == "string" then . else (.id // empty) end' 2>/dev/null)"
+  # or .template_id wins otherwise. `select(.)` keeps empty strings from
+  # slipping through.
+  extract_id_out="$(printf '%s' "$body" | jq -r 'if type == "string" then . else (.id // .template_id // empty) end' 2>/dev/null)"
   [[ -n "$extract_id_out" ]] || nv::die "$label create returned no id: $body"
 }
 

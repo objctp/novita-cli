@@ -6,6 +6,7 @@
 
 - Add release automation, git hooks, doc generation, and installer
 - Add delete and update verbs
+- Require --type and add update and delete verbs
 
 ### Changed
 
