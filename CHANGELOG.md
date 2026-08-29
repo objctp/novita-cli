@@ -14,4 +14,5 @@
 ### Fixed
 
 - Align create and lifecycle with the v2 instance spec
+- Align create with the v2 endpoint spec
 

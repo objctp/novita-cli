@@ -60,13 +60,53 @@ function test_create_posts_the_confirmed_v2_endpoint_shape() {
   assert_equals "8080" "$(printf '%s' "$body" | jq -r '.health_check.port')"
 }
 
-function test_create_defaults_type_to_sync_and_omits_empty_worker_config() {
+function test_create_defaults_type_to_sync_and_sends_worker_config_default() {
   nv::args_parse --name api --product p --image i --app a --region r
   _serverless_create >/dev/null 2>&1
   local body
   body="$(<"$SL_BODY")"
   assert_equals "sync" "$(printf '%s' "$body" | jq -r '.type')"
-  assert_equals "false" "$(printf '%s' "$body" | jq -r 'has("worker_config")')"
+  assert_equals "1" "$(printf '%s' "$body" | jq -r '.worker_config.max_replicas')"
+}
+
+function test_create_rejects_non_numeric_scaling_flags() {
+  nv::args_parse --name api --product p --image i --app a --region r --max abc
+  (_serverless_create >/dev/null 2>&1)
+  assert_exit_code 2
+}
+
+function test_create_sends_integer_ports() {
+  nv::args_parse --name api --product p --image i --app a --region r --port 8080 --port 9000
+  _serverless_create >/dev/null 2>&1
+  local body
+  body="$(<"$SL_BODY")"
+  assert_equals '[8080,9000]' "$(printf '%s' "$body" | jq -rc '.ports')"
+}
+
+function test_create_rejects_out_of_range_port() {
+  nv::args_parse --name api --product p --image i --app a --region r --port 65536
+  (_serverless_create >/dev/null 2>&1)
+  assert_exit_code 2
+}
+
+function test_create_rejects_port_protocol_suffix() {
+  nv::args_parse --name api --product p --image i --app a --region r --port 8080:tcp
+  (_serverless_create >/dev/null 2>&1)
+  assert_exit_code 2
+}
+
+function test_create_accepts_async_type() {
+  nv::args_parse --name api --product p --image i --app a --region r --type async
+  _serverless_create >/dev/null 2>&1
+  local body
+  body="$(<"$SL_BODY")"
+  assert_equals "async" "$(printf '%s' "$body" | jq -r '.type')"
+}
+
+function test_create_rejects_stream_type() {
+  nv::args_parse --name api --product p --image i --app a --region r --type stream
+  (_serverless_create >/dev/null 2>&1)
+  assert_exit_code 2
 }
 
 function test_create_rejects_unknown_type() {
@@ -79,6 +119,20 @@ function test_create_rejects_unknown_policy_type() {
   nv::args_parse --name api --product p --image i --app a --region r --policy latency
   (_serverless_create >/dev/null 2>&1)
   assert_exit_code 2
+}
+
+function test_create_rejects_renamed_request_count_policy() {
+  nv::args_parse --name api --product p --image i --app a --region r --policy request_count
+  (_serverless_create >/dev/null 2>&1)
+  assert_exit_code 2
+}
+
+function test_create_builds_concurrency_policy() {
+  nv::args_parse --name api --product p --image i --app a --region r --policy concurrency --policy-value 50
+  _serverless_create >/dev/null 2>&1
+  local body
+  body="$(<"$SL_BODY")"
+  assert_equals '{"type":"concurrency","value":50}' "$(printf '%s' "$body" | jq -rc '.policy')"
 }
 
 function test_create_is_idempotent_by_name_before_flag_validation() {

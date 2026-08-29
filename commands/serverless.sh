@@ -23,11 +23,12 @@ _serverless_create() {
     return 0
   fi
   [[ -n "$product" && -n "$image" && -n "$app" && -n "$region" ]] ||
-    nv::usage "usage: nv serverless create --name <n> --product <id> --image <img> --app <name> --region <id> [--min 0] [--max 1] [--idle 300] [--policy queue|request_count --policy-value N]"
+    nv::usage "usage: nv serverless create --name <n> --product <id> --image <img> --app <name> --region <id> [--type sync|async] [--min 0] [--max 1] [--idle 300] [--policy queue|concurrency --policy-value N]"
   local etype
   etype="$(nv::args_get type sync)"
-  [[ "$etype" == "sync" || "$etype" == "stream" ]] ||
-    nv::usage "usage: invalid --type '$etype' (expected sync|stream)"
+  # The create spec's enum is sync|async — `stream` never existed there.
+  [[ "$etype" == "sync" || "$etype" == "async" ]] ||
+    nv::usage "usage: nv serverless create --type expects sync|async (got '$etype')"
   local body='{}'
   nv::obj_set body type "$(nv::json_str "$etype")"
   nv::obj_set body name "$(nv::json_str "$name")"
@@ -38,36 +39,41 @@ _serverless_create() {
   nv::obj_set_str body registry_auth_id "$(nv::args_get registry)"
   nv::obj_set_str body entrypoint "$(nv::args_get entrypoint)"
   nv::obj_set_str body command "$(nv::args_get command)"
-  # worker_config: every field optional; the API applies its own defaults.
-  local wc
-  wc="$(nv::json_worker_config \
-    "$(nv::args_get_uint min)" \
-    "$(nv::args_get_uint max)" \
-    "$(nv::args_get_uint idle)" \
-    "$(nv::args_get_uint concurrent)" \
-    "$(nv::args_get_uint gpu-count)" \
-    "$(nv::args_get_uint rootfs-gb)" \
-    "$(nv::args_get_uint request-timeout)")"
-  [[ "$wc" == '{}' ]] || nv::obj_set body worker_config "$wc"
+  # worker_config is REQUIRED by the create spec (max_replicas required within
+  # it), so the object is always sent; --max defaults to 1 when unset. Uint
+  # reads are caught so a bad flag value exits 2 from THIS shell rather than
+  # being swallowed inside the substitution.
+  local wmin wmax wideal wconc wgpu wrootfs wtimeout wc
+  wmin="$(nv::args_get_uint min)" || exit 2
+  wmax="$(nv::args_get_uint max 1)" || exit 2
+  wideal="$(nv::args_get_uint idle)" || exit 2
+  wconc="$(nv::args_get_uint concurrent)" || exit 2
+  wgpu="$(nv::args_get_uint gpu-count)" || exit 2
+  wrootfs="$(nv::args_get_uint rootfs-gb)" || exit 2
+  wtimeout="$(nv::args_get_uint request-timeout)" || exit 2
+  wc="$(nv::json_worker_config "$wmin" "$wmax" "$wideal" "$wconc" "$wgpu" "$wrootfs" "$wtimeout")"
+  nv::obj_set body worker_config "$wc"
   # policy: type defaults to queue; value defaults per the API when omitted.
   # Validate the type INLINE (never inside a command substitution) so a bad
   # value exits with usage code 2 from the caller's shell.
   local ptype pvalue
   ptype="$(nv::args_get policy)"
-  pvalue="$(nv::args_get_uint policy-value)"
+  pvalue="$(nv::args_get_uint policy-value)" || exit 2
   if [[ -n "$ptype" || -n "$pvalue" ]]; then
     case "$ptype" in
-    queue | request_count) ;;
-    *) nv::usage "unknown policy type: '$ptype' (expected queue|request_count)" ;;
+    queue | concurrency) ;;
+    *) nv::usage "usage: nv serverless create --policy expects queue|concurrency (got '$ptype')" ;;
     esac
     nv::obj_set body policy "$(nv::json_policy "${ptype:-queue}" "$pvalue")"
   fi
   local envs ports volumes
-  envs="$(nv::envs_to_jsonarray "$(nv::args_get env)")"
+  # The builders' usage errors must exit 2 from THIS shell, so each assignment
+  # is caught here — an `exit 2` inside the substitution would be swallowed.
+  envs="$(nv::envs_to_jsonarray "$(nv::args_get env)")" || exit 2
   [[ "$envs" == '[]' ]] || nv::obj_set body envs "$envs"
-  ports="$(nv::ports_to_jsonarray "$(nv::args_get port)")"
+  ports="$(nv::ports_int_to_jsonarray "$(nv::args_get port)")" || exit 2
   [[ "$ports" == '[]' ]] || nv::obj_set body ports "$ports"
-  volumes="$(nv::volume_mounts_to_jsonarray "$(nv::args_get volume)")"
+  volumes="$(nv::volume_mounts_to_jsonarray "$(nv::args_get volume)")" || exit 2
   [[ "$volumes" == '[]' ]] || nv::obj_set body volumes "$volumes"
   # health_check: either field may be given.
   local hc
@@ -146,20 +152,24 @@ _serverless_run() {
 #
 # Usage: nv serverless create --name <n> --product <id> --image <img>
 #                             --app <name> --region <id>
-#                             [--type sync|stream] [--min N] [--max N]
+#                             [--type sync|async] [--min N] [--max N]
 #                             [--idle S] [--concurrent N] [--gpu-count N]
 #                             [--rootfs-gb N] [--request-timeout S]
-#                             [--policy queue|request_count] [--policy-value N]
-#                             [--env K=V]… [--port <p>[:<proto>]]…
+#                             [--policy queue|concurrency] [--policy-value N]
+#                             [--env K=V]… [--port <p>]…
 #                             [--volume <storage-id>:<mount>]…
 #                             [--registry <auth-id>] [--health-path <p>]
 #                             [--health-port N] [--entrypoint <cmd>]
 #                             [--command <args>] [--force]
 #
 # Notes:
+#   --type is sync|async (default sync); --policy is queue|concurrency.
+#   --port takes a bare integer 1-65535 — no ':protocol' suffix here.
+#   The API requires a worker_config with an explicit max_replicas, so a bare
+#   create sends --max 1; the scaling flags override.
 #   Creation is idempotent by name; --force POSTs regardless. min 0 scales to
-#   zero (cheap, cold starts); the policy arms map to Novita's queue-delay and
-#   request-count scalers.
+#   zero (cheap, cold starts); the policy arms map to Novita's queue-wait and
+#   per-worker request-count scalers.
 #   The new id is printed on stdout and the confirmation on stderr, so
 #   `id=$(nv serverless create …)` captures just the id.
 #
@@ -233,9 +243,9 @@ nv::cmd_serverless() {
     cat <<'EOF'
 Usage: nv serverless <verb> [flags]
   create --name <n> --product <id> --image <img> --app <name> --region <id>
-         [--type sync|stream] [--min 0] [--max 1] [--idle 300]
-         [--policy queue|request_count --policy-value N] [--env K=V]...
-         [--port p[:proto]]... [--volume <id>:<path>]... [--health-path <p> --health-port N]
+         [--type sync|async] [--min 0] [--max 1] [--idle 300]
+         [--policy queue|concurrency --policy-value N] [--env K=V]...
+         [--port N]... [--volume <id>:<path>]... [--health-path <p> --health-port N]
          (idempotent by name)
   list | get <id> | update <id> [--name|--min|--max|--idle|--concurrent] | delete <id>
   run <id> [--input <json>|@file] [--sync]   (POSTs the endpoint's own url)

@@ -154,6 +154,22 @@ nv::ports_obj_to_jsonarray() {
   printf '%s' "$arr"
 }
 
+# v2 ENDPOINT ports: the endpoint-create spec wants a plain array of INTEGERS
+# ([1,65535], example [8080]) — a "port:proto" suffix is invalid here and is
+# rejected with a usage error, as are non-numeric and leading-zero ports.
+nv::ports_int_to_jsonarray() {
+  local arr='[]' entry port
+  while IFS= read -r entry; do
+    [[ -z "$entry" ]] && continue
+    port="${entry%%:*}"
+    [[ "$entry" == "$port" ]] || nv::usage "usage: invalid --port '$entry' (endpoints take a bare port number — no ':protocol' suffix)"
+    [[ "$port" =~ ^[1-9][0-9]*$ ]] || nv::usage "usage: invalid --port '$entry' (expected a port number, 1-65535)"
+    ((port <= 65535)) || nv::usage "usage: invalid --port '$entry' (expected a port number, 1-65535)"
+    arr="$(jq -c -n --argjson cur "$arr" --argjson port "$port" '$cur + [$port]')"
+  done <<<"$1"
+  printf '%s' "$arr"
+}
+
 # v2 network-volume mount: {"type":"network","id":ID,"mount_point":PATH}.
 # Entries are "<id>:<path>"; the mount point defaults to
 # $NV_DEFAULT_MOUNT_POINT (/data). Used by pod and endpoint volume mounts.
@@ -205,14 +221,13 @@ nv::json_health_check() {
   printf '%s' "$obj"
 }
 
-# v2 scale policy: {"type": queue|request_count, "value": N}. The two arms carry
-# different units (queue delay seconds vs in-flight request count) but the same
-# wire shape.
+# v2 scale policy: {"type": queue|concurrency, "value": N}. `queue` measures
+# queue wait time; `concurrency` measures in-flight request count.
 nv::json_policy() {
   local ptype="$1" value="$2"
   case "$ptype" in
-  queue | request_count) ;;
-  *) nv::usage "unknown policy type: '$ptype' (expected queue|request_count)" ;;
+  queue | concurrency) ;;
+  *) nv::usage "unknown policy type: '$ptype' (expected queue|concurrency)" ;;
   esac
   nv::json_obj type "$(nv::json_str "$ptype")" value "$value"
 }

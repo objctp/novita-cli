@@ -84,6 +84,25 @@ function test_ports_obj_rejects_non_numeric_port() {
   assert_exit_code 2
 }
 
+function test_ports_int_keeps_bare_ports_bare() {
+  assert_equals '[8080,9000]' "$(nv::ports_int_to_jsonarray $'8080\n9000')"
+}
+
+function test_ports_int_rejects_protocol_suffix() {
+  (nv::ports_int_to_jsonarray '8080:tcp' >/dev/null 2>&1)
+  assert_exit_code 2
+}
+
+function test_ports_int_rejects_non_numeric_port() {
+  (nv::ports_int_to_jsonarray 'http' >/dev/null 2>&1)
+  assert_exit_code 2
+}
+
+function test_ports_int_rejects_leading_zero_port() {
+  (nv::ports_int_to_jsonarray '0808' >/dev/null 2>&1)
+  assert_exit_code 2
+}
+
 function test_volume_mounts_default_to_data_mount_point() {
   assert_equals '[{"type":"network","id":"st1","mount_point":"/data"}]' \
     "$(nv::volume_mounts_to_jsonarray 'st1')"
@@ -114,6 +133,15 @@ function test_health_check_allows_partial() {
 
 function test_policy_builds_queue_arm() {
   assert_equals '{"type":"queue","value":100}' "$(nv::json_policy queue 100)"
+}
+
+function test_policy_builds_concurrency_arm() {
+  assert_equals '{"type":"concurrency","value":50}' "$(nv::json_policy concurrency 50)"
+}
+
+function test_policy_rejects_request_count_type() {
+  (nv::json_policy request_count 100 >/dev/null 2>&1)
+  assert_exit_code 2
 }
 
 function test_policy_rejects_unknown_type() {
