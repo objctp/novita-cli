@@ -2,10 +2,8 @@
 Serverless GPU endpoints (BYO-container).
 An endpoint is an autoscaling pool of worker containers running your image:
 Novita schedules workers per the worker_config, scales on the policy, and
-health-checks them. Invocation is TWO-SURFACE: a sync endpoint's own `url`
-serves your HTTP service on arbitrary paths, whilst an async endpoint's jobs
-go through the shared gateway host (run/status/cancel/health) — never to the
-endpoint's url.
+health-checks them. Jobs are invoked against the endpoint's own `url` field
+(a customer-owned host), not a shared Novita data-plane host.
 
 ```
 nv serverless <verb> [flags]
@@ -18,7 +16,4 @@ nv serverless <verb> [flags]
 - [`nv serverless create`](serverless-create.md) — Create a serverless endpoint (BYO container).
 - [`nv serverless update`](serverless-update.md) — Patch an endpoint's scaling fields.
 - [`nv serverless delete`](serverless-delete.md) — Delete a serverless endpoint permanently.
-- [`nv serverless run`](serverless-run.md) — Invoke a job: sync endpoints POST the endpoint's url directly, async
-- [`nv serverless status`](serverless-status.md) — Poll one async job's status and output.
-- [`nv serverless cancel`](serverless-cancel.md) — Cancel one async job.
-- [`nv serverless health`](serverless-health.md) — Show an async endpoint's queue health: worker and job counters.
+- [`nv serverless run`](serverless-run.md) — Invoke a job on the endpoint's own URL.

@@ -128,7 +128,7 @@ _serverless_run() {
 ###
 
 # doc: list
-# List your serverless endpoints as a table: id, name, url, region.
+# List your serverless endpoints as a table: id, name, url, region_id.
 #
 # Usage: nv serverless list [--json] [--jq <filter>] [--limit N] [--cursor <c>]
 #
@@ -233,7 +233,9 @@ nv::cmd_serverless() {
   nv::args_parse "$@"
   nv::args_has help && verb=help
   case "$verb" in
-  list) nv::resource_list serverless id name url region ;;
+  # The record's region field is region_id — naming the column for the field
+  # is what makes it render.
+  list) nv::resource_list serverless id name url region_id ;;
   get) nv::resource_get serverless ;;
   create) _serverless_create ;;
   update) _serverless_update ;;

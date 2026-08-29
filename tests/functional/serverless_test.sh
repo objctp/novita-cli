@@ -225,6 +225,16 @@ function test_run_dies_when_the_record_has_no_url() {
   assert_exit_code 1
 }
 
+# The endpoint record's region field is region_id (not region) — the column
+# must be named for the field so it actually renders.
+function test_list_renders_the_region_id_field() {
+  SL_STUB_BODY='{"data":[{"id":"ep-1","name":"api","url":"https://x.example","region_id":"r-1"}]}'
+  local out
+  out="$(nv::cmd_serverless list 2>/dev/null)"
+  assert_contains "r-1" "$out"
+  assert_contains "region_id" "$out"
+}
+
 function test_main_shell_routing_through_the_public_dispatcher() {
   nv::cmd_serverless list --json >/dev/null 2>&1
   assert_contains "GET /endpoints" "$(<"$SL_CAPTURE")"

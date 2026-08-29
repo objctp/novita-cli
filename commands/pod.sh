@@ -92,6 +92,9 @@ _pod_lifecycle() {
 #   --json         print the raw API response
 #
 # Notes:
+#   The status column renders the nested status.status state — `error` and
+#   `message` stay on the record for --json/--jq, keeping the table one line
+#   per pod.
 #   Pages are fetched server-side (v2 cursor pagination). When more pages
 #   exist, the next cursor is printed to stderr, leaving stdout clean for
 #   scripts; pass it back with --cursor.
@@ -180,7 +183,12 @@ nv::cmd_pod() {
   nv::args_parse "$@"
   nv::args_has help && verb=help
   case "$verb" in
-  list) nv::resource_list pod id name status region ;;
+  # The record's status is a nested object {status, error, message}; the table
+  # reshapes to the inner status so a pod stays one line (error/message remain
+  # on the record for --json/--jq).
+  list) nv::resource_list pod --reshape \
+    'map(. + {status: ((.status | if type == "object" then .status else . end) // "")})' \
+    id name status region ;;
   get) nv::resource_get pod ;;
   create) _pod_create ;;
   start) _pod_lifecycle start ;;

@@ -152,6 +152,17 @@ function test_start_and_stop_put_their_routes() {
   assert_contains "PUT /instances/inst-1/stop" "$(<"$POD_CAPTURE")"
 }
 
+# The v2 instance record carries status as an OBJECT {status, error, message};
+# the table must render the inner status, one line per pod (error/message stay
+# reachable via --json/--jq).
+function test_list_renders_the_nested_status_field() {
+  POD_STUB_BODY='{"data":[{"id":"i-1","name":"dev","status":{"status":"running","error":null,"message":null},"region":"r-1"}]}'
+  local out
+  out="$(nv::cmd_pod list 2>/dev/null)"
+  assert_contains "running" "$out"
+  assert_not_contains '"message"' "$out"
+}
+
 function test_main_shell_routing_through_the_public_dispatcher() {
   nv::cmd_pod list --json >/dev/null 2>&1
   assert_contains "GET /instances" "$(<"$POD_CAPTURE")"
