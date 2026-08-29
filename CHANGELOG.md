@@ -11,3 +11,7 @@
 - Scaffold novita-cli (nv): Bash CLI for Novita AI GPU cloud
 - Add MkDocs site with deploy workflow
 
+### Fixed
+
+- Align create and lifecycle with the v2 instance spec
+

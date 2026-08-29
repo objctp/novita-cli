@@ -129,6 +129,31 @@ nv::ports_to_jsonarray() {
   printf '%s' "$arr"
 }
 
+# v2 INSTANCE ports: the instance-create spec wants objects {port, protocol}
+# with BOTH keys required and protocol limited to tcp|http (no https). A bare
+# entry ("8080") defaults protocol to tcp. Entries are "<port>" or
+# "<port>:<tcp|http>". Used by pod create; endpoints take integers instead
+# (see nv::ports_to_jsonarray until the endpoint builder lands).
+nv::ports_obj_to_jsonarray() {
+  local arr='[]' entry port proto
+  while IFS= read -r entry; do
+    [[ -z "$entry" ]] && continue
+    port="${entry%%:*}"
+    proto="${entry#*:}"
+    # Leading zeros ("0808") would reach jq --argjson as invalid JSON; reject
+    # them here so the failure is the intended usage message.
+    [[ "$port" =~ ^[1-9][0-9]*$ ]] || nv::usage "usage: invalid --port '$entry' (expected <port> or <port>:<tcp|http>)"
+    [[ "$proto" == "$entry" ]] && proto=""
+    case "$proto" in
+    "") proto="tcp" ;;
+    tcp | http) ;;
+    *) nv::usage "usage: invalid --port protocol '$proto' (expected tcp|http)" ;;
+    esac
+    arr="$(jq -c -n --argjson cur "$arr" --argjson port "$port" --arg proto "$proto" '$cur + [{port: $port, protocol: $proto}]')"
+  done <<<"$1"
+  printf '%s' "$arr"
+}
+
 # v2 network-volume mount: {"type":"network","id":ID,"mount_point":PATH}.
 # Entries are "<id>:<path>"; the mount point defaults to
 # $NV_DEFAULT_MOUNT_POINT (/data). Used by pod and endpoint volume mounts.

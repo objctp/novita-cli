@@ -49,12 +49,13 @@ function test_create_posts_the_confirmed_v2_body_shape() {
   assert_equals "30" "$(printf '%s' "$body" | jq -r '.resource.rootfs_size_gb')"
 }
 
-function test_create_omits_resource_when_no_size_flags() {
+function test_create_sends_resource_defaults_when_size_flags_unset() {
   nv::args_parse --product prod-1 --image nginx
   _pod_create >/dev/null 2>&1
   local body
   body="$(<"$POD_BODY")"
-  assert_equals "false" "$(printf '%s' "$body" | jq -r 'has("resource")')"
+  assert_equals "1" "$(printf '%s' "$body" | jq -r '.resource.gpu_num')"
+  assert_equals "20" "$(printf '%s' "$body" | jq -r '.resource.rootfs_size_gb')"
 }
 
 function test_create_omits_unset_optional_strings() {
@@ -76,10 +77,16 @@ function test_create_builds_envs_ports_volumes_and_regions() {
   local body
   body="$(<"$POD_BODY")"
   assert_equals '2' "$(printf '%s' "$body" | jq -r '.envs | length')"
-  assert_equals '1' "$(printf '%s' "$body" | jq -r '[.ports[] | select(type == "number")] | length')"
-  assert_equals '1' "$(printf '%s' "$body" | jq -r '[.ports[] | select(type == "object")] | length')"
+  assert_equals '[{"port":8080,"protocol":"tcp"},{"port":9000,"protocol":"tcp"}]' \
+    "$(printf '%s' "$body" | jq -rc '.ports')"
   assert_equals '/workspace' "$(printf '%s' "$body" | jq -r '.volumes[1].mount_point')"
   assert_equals '["r-1","r-2"]' "$(printf '%s' "$body" | jq -rc '.candidate_regions')"
+}
+
+function test_create_rejects_https_port_protocol() {
+  nv::args_parse --product p --image i --port 443:https
+  (_pod_create >/dev/null 2>&1)
+  assert_exit_code 2
 }
 
 function test_create_embeds_jupyter_tools_when_flagged() {
@@ -92,6 +99,28 @@ function test_create_embeds_jupyter_tools_when_flagged() {
 
 function test_create_requires_product_and_image() {
   nv::args_parse --product prod-1
+  (_pod_create >/dev/null 2>&1)
+  assert_exit_code 2
+}
+
+function test_create_sends_postpaid_billing_by_default() {
+  nv::args_parse --product prod-1 --image nginx
+  _pod_create >/dev/null 2>&1
+  local body
+  body="$(<"$POD_BODY")"
+  assert_equals "postpaid" "$(printf '%s' "$body" | jq -r '.billing.mode')"
+}
+
+function test_create_honours_billing_mode_flag() {
+  nv::args_parse --product prod-1 --image nginx --billing-mode prepaid
+  _pod_create >/dev/null 2>&1
+  local body
+  body="$(<"$POD_BODY")"
+  assert_equals "prepaid" "$(printf '%s' "$body" | jq -r '.billing.mode')"
+}
+
+function test_create_rejects_unknown_billing_mode() {
+  nv::args_parse --product prod-1 --image nginx --billing-mode barter
   (_pod_create >/dev/null 2>&1)
   assert_exit_code 2
 }
@@ -115,12 +144,12 @@ function test_create_is_idempotent_by_name() {
   rm -f "$posted"
 }
 
-function test_start_and_stop_post_their_routes() {
+function test_start_and_stop_put_their_routes() {
   nv::args_parse inst-1
   _pod_lifecycle start >/dev/null 2>&1
-  assert_contains "POST /instances/inst-1/start" "$(<"$POD_CAPTURE")"
+  assert_contains "PUT /instances/inst-1/start" "$(<"$POD_CAPTURE")"
   _pod_lifecycle stop >/dev/null 2>&1
-  assert_contains "POST /instances/inst-1/stop" "$(<"$POD_CAPTURE")"
+  assert_contains "PUT /instances/inst-1/stop" "$(<"$POD_CAPTURE")"
 }
 
 function test_main_shell_routing_through_the_public_dispatcher() {

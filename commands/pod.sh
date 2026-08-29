@@ -15,26 +15,44 @@ _pod_create() {
   product="$(nv::args_get product)"
   image="$(nv::args_get image)"
   [[ -n "$product" && -n "$image" ]] ||
-    nv::usage "usage: nv pod create [--name <n>] --product <id> --image <img> [--gpu-count N] [--region <id,id>] [--env K=V] [--port N] [--volume <id>:<path>]"
+    nv::usage "usage: nv pod create [--name <n>] --product <id> --image <img> [--billing-mode postpaid|prepaid|spot] [--gpu-count N] [--rootfs-gb N] [--region <id,id>] [--env K=V] [--port N] [--volume <id>:<path>]"
   local body='{}'
   # Optional strings: nv::obj_set_str skips them when unset (an unset --name
   # must not become {"name":""} on the wire).
   nv::obj_set_str body name "$name"
   nv::obj_set body product_id "$(nv::json_str "$product")"
   nv::obj_set body image "$(nv::json_str "$image")"
-  # resource{rootfs_size_gb, gpu_num} — the nested v2 shape; both default on the
-  # API side, so unset flags are skipped.
+  # billing.mode is required by the create spec; postpaid is the pay-as-you-go
+  # default. Validated INLINE (never inside a command substitution) so a bad
+  # value exits with usage code 2 from the caller's shell.
+  local bmode
+  bmode="$(nv::args_get billing-mode postpaid)"
+  case "$bmode" in
+  postpaid | prepaid | spot) ;;
+  *) nv::usage "usage: nv pod create --billing-mode expects postpaid|prepaid|spot (got '$bmode')" ;;
+  esac
+  nv::obj_set body billing "$(nv::json_obj mode "$(nv::json_str "$bmode")")"
+  # resource{rootfs_size_gb, gpu_num} — the nested v2 shape, with BOTH keys
+  # required by the create spec, so the object is always sent; documented
+  # example values (1 GPU, 20 GB rootfs) stand in when flags are unset. The
+  # uint reads are caught so a bad flag value exits 2 from THIS shell rather
+  # than being swallowed inside the substitution.
+  local rootfs_gb gpu_num
+  rootfs_gb="$(nv::args_get_uint rootfs-gb 20)" || exit 2
+  gpu_num="$(nv::args_get_uint gpu-count 1)" || exit 2
   local resource='{}'
-  nv::obj_set resource rootfs_size_gb "$(nv::args_get_uint rootfs-gb)"
-  nv::obj_set resource gpu_num "$(nv::args_get_uint gpu-count)"
-  [[ "$resource" == '{}' ]] || nv::obj_set body resource "$resource"
+  nv::obj_set resource rootfs_size_gb "$rootfs_gb"
+  nv::obj_set resource gpu_num "$gpu_num"
+  nv::obj_set body resource "$resource"
   nv::obj_set_str body registry_auth_id "$(nv::args_get registry)"
   nv::obj_set_str body entrypoint "$(nv::args_get entrypoint)"
   nv::obj_set_str body command "$(nv::args_get command)"
   local envs ports volumes regions
   envs="$(nv::envs_to_jsonarray "$(nv::args_get env)")"
   [[ "$envs" == '[]' ]] || nv::obj_set body envs "$envs"
-  ports="$(nv::ports_to_jsonarray "$(nv::args_get port)")"
+  # The builder's usage errors must exit 2 from THIS shell, so the assignment
+  # is caught here — an `exit 2` inside the substitution would be swallowed.
+  ports="$(nv::ports_obj_to_jsonarray "$(nv::args_get port)")" || exit 2
   [[ "$ports" == '[]' ]] || nv::obj_set body ports "$ports"
   volumes="$(nv::volume_mounts_to_jsonarray "$(nv::args_get volume)")"
   [[ "$volumes" == '[]' ]] || nv::obj_set body volumes "$volumes"
@@ -48,13 +66,13 @@ _pod_create() {
   nv::resource_create pod "$name" "$body" "$product"
 }
 
-# POST /instances/{id}/start and /stop. Both are idempotent-ish state
-# transitions; the response body is discarded.
+# PUT /instances/{id}/start and /stop — the v2 specs give both lifecycle routes
+# no request body; the response body is discarded.
 _pod_lifecycle() {
   local verb="$1" id
   nv::require_pos id "usage: nv pod $verb <id>"
   nv::require_id id "$id" "instance id"
-  nv::http POST "/instances/$id/$verb" >/dev/null
+  nv::http PUT "/instances/$id/$verb" >/dev/null
   nv::ok "${verb}ed instance $id"
 }
 
@@ -94,8 +112,9 @@ _pod_lifecycle() {
 # Create a GPU instance.
 #
 # Usage: nv pod create [--name <n>] --product <id> --image <img>
-#                      [--gpu-count N] [--rootfs-gb N] [--region <id,…>]
-#                      [--env K=V]… [--port <p>[:<proto>]]…
+#                      [--billing-mode postpaid|prepaid|spot] [--gpu-count N]
+#                      [--rootfs-gb N] [--region <id,…>]
+#                      [--env K=V]… [--port <p>[:<tcp|http>]]…
 #                      [--volume <storage-id>:<mount>]…
 #                      [--registry <auth-id>] [--entrypoint <cmd>]
 #                      [--command <args>] [--jupyter [--jupyter-port N]] [--force]
@@ -104,11 +123,12 @@ _pod_lifecycle() {
 #   --name <n>            instance name (enables idempotent re-runs)
 #   --product <id>        GPU product id — see `nv catalog gpu` (required)
 #   --image <img>         container image (required)
-#   --gpu-count N         number of GPUs (default: product default)
+#   --billing-mode <m>    postpaid | prepaid | spot (default: postpaid)
+#   --gpu-count N         number of GPUs (default: 1)
 #   --rootfs-gb N         system disk size in GB (default: 20)
 #   --region <id,…>       candidate regions, csv or repeated
 #   --env K=V             environment variable (repeatable)
-#   --port p[:proto]      exposed port; proto tcp|http|https (repeatable)
+#   --port p[:proto]      exposed port; proto tcp|http, default tcp (repeatable)
 #   --volume id:path      network-storage mount (repeatable; default /data)
 #   --registry <auth-id>  container-registry auth id — see `nv registry list`
 #   --entrypoint <cmd>    container entrypoint
@@ -117,6 +137,9 @@ _pod_lifecycle() {
 #   --force               create even when the name is taken
 #
 # Notes:
+#   The API requires a billing mode and an explicit resource block, so bare
+#   creates send billing.mode=postpaid, 1 GPU and a 20 GB rootfs; the flags
+#   above override.
 #   Creation is idempotent by name: where an instance of that name already
 #   exists, the CLI prints its id and skips the POST. --force sends the
 #   request regardless.
@@ -135,14 +158,14 @@ _pod_lifecycle() {
 #
 # Usage: nv pod start <id>
 #
-# API: POST /gpus/v2/instances/{id}/start
+# API: PUT /gpus/v2/instances/{id}/start
 
 # doc: stop
 # Stop a running instance (keeps the rootfs; stops GPU billing).
 #
 # Usage: nv pod stop <id>
 #
-# API: POST /gpus/v2/instances/{id}/stop
+# API: PUT /gpus/v2/instances/{id}/stop
 
 # doc: delete
 # Delete an instance permanently (rootfs included).
@@ -166,8 +189,8 @@ nv::cmd_pod() {
   -h | --help | help)
     cat <<'EOF'
 Usage: nv pod <verb> [flags]
-  create [--name <n>] --product <id> --image <img> [--gpu-count N] [--rootfs-gb N]
-         [--region <id,id>] [--env K=V]... [--port p[:proto]]...
+  create [--name <n>] --product <id> --image <img> [--billing-mode m] [--gpu-count N]
+         [--rootfs-gb N] [--region <id,id>] [--env K=V]... [--port p[:tcp|http]]...
          [--volume <id>:<path>]... [--registry <auth-id>] [--jupyter] [--force]
          (idempotent by name)
   list | get <id> | delete <id>

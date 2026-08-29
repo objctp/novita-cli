@@ -59,6 +59,31 @@ function test_ports_to_jsonarray_rejects_non_numeric_port() {
   assert_exit_code 2
 }
 
+function test_ports_obj_defaults_bare_ports_to_tcp() {
+  assert_equals '[{"port":8080,"protocol":"tcp"},{"port":9000,"protocol":"tcp"}]' \
+    "$(nv::ports_obj_to_jsonarray $'8080\n9000')"
+}
+
+function test_ports_obj_keeps_explicit_tcp_and_http() {
+  assert_equals '[{"port":8080,"protocol":"tcp"},{"port":9000,"protocol":"http"}]' \
+    "$(nv::ports_obj_to_jsonarray $'8080:tcp\n9000:http')"
+}
+
+function test_ports_obj_rejects_https_protocol() {
+  (nv::ports_obj_to_jsonarray '443:https' >/dev/null 2>&1)
+  assert_exit_code 2
+}
+
+function test_ports_obj_rejects_bad_protocol() {
+  (nv::ports_obj_to_jsonarray '8080:grpc' >/dev/null 2>&1)
+  assert_exit_code 2
+}
+
+function test_ports_obj_rejects_non_numeric_port() {
+  (nv::ports_obj_to_jsonarray 'http' >/dev/null 2>&1)
+  assert_exit_code 2
+}
+
 function test_volume_mounts_default_to_data_mount_point() {
   assert_equals '[{"type":"network","id":"st1","mount_point":"/data"}]' \
     "$(nv::volume_mounts_to_jsonarray 'st1')"
