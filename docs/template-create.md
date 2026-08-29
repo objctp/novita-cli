@@ -2,13 +2,26 @@
 Create a template from an image.
 
 ```
-nv template create --name <n> --image <img> [--env K=V] [--port p[:proto]]
+nv template create --name <n> --type <t> --image <img>
+                          [--env K=V] [--port p[:proto]] [--force]
+```
+
+## Options
+
+```
+  --name <n>        template name (required; enables idempotent re-runs)
+  --type <t>        template type (required; `instance` is the only value
+                    Novita's docs enumerate)
+  --image <img>     container image (required)
+  --env K=V         environment variable (repeatable)
+  --port p[:proto]  exposed port; proto tcp|http, default tcp (repeatable)
+  --force           create even when the name is taken
 ```
 
 ## Notes
-  The list path is confirmed, but Novita's docs do not confirm a create
-  route; this verb POSTs /gpus/v2/templates per REST convention and may need
-  adjusting once the route is verified.
+  Creation is idempotent by name; --force POSTs regardless. The response
+  carries the new id under template_id, and the id is printed on stdout,
+  so `id=$(nv template create …)` captures just the id.
 
-**API:** `POST /gpus/v2/templates  (route unverified)`
+**API:** `POST /gpus/v2/templates`
 

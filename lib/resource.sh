@@ -71,8 +71,10 @@ _res_create_path() {
 }
 
 # List a resource: GET (with the namespace's pagination params), unwrap `data`,
-# surface the v2 next-cursor hint, then --json or a table of the given columns.
-# $1 resource; remaining args are the table column names.
+# surface the v2 next-cursor hint, then --json or a table. Remaining args go to
+# nv::table: column names, plus its options (e.g. --reshape '<jq>') — --json
+# prints the unwrapped array untouched, so reshaping never reaches scripts.
+# $1 resource; remaining args are the table's columns (and options).
 nv::resource_list() {
   local res_resource="$1"
   shift
@@ -104,8 +106,10 @@ nv::resource_get() {
   nv::emit_json_or "$res_body" nv::json_pretty "$res_body"
 }
 
-# Delete a record by the positional id. v1 storage has no confirmed delete
-# endpoint — verbs that lack one simply don't dispatch here.
+# Delete a record by the positional id. The v1 storage writes are NOT REST
+# DELETEs — they POST /networkstorage/{delete,update} with camelCase bodies on
+# the singular path — so volume keeps bespoke verbs in commands/volume.sh and
+# never dispatches here.
 # Arguments:
 #   $1 - resource: resource name (pod, serverless, ...)
 nv::resource_delete() {

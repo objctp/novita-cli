@@ -4,9 +4,10 @@
 #
 # Storage lives in one cluster (datacentre) and outlives every workload that
 # mounts it. The v1 namespace splits the routes: list under
-# /networkstorages/list (GET, pageNo/pageSize), create under
-# /networkstorage/create (POST, camelCase body). The create response is a BARE
-# JSON STRING holding the new storage id — nv::extract_id handles both shapes.
+# /networkstorages/list (GET, pageNo/pageSize), and the writes under
+# /networkstorage/{create,update,delete} (POST, camelCase bodies). The create
+# response is a BARE JSON STRING holding the new storage id — nv::extract_id
+# handles both shapes.
 #
 # Usage: nv volume <verb> [flags]
 #
@@ -39,6 +40,34 @@ _volume_ls() {
   jqf="$(nv::args_get jq)"
   [[ -z "$jqf" ]] || arr="$(printf '%s' "$arr" | jq -c "$jqf")" || nv::die "invalid --jq filter: $jqf"
   nv::emit_json_or "$arr" nv::table "$arr" storageId storageName storageSize clusterName
+}
+
+# v1 splits the write routes (create/update/delete under /networkstorage/*),
+# so these verbs POST a camelCase body instead of a REST DELETE/PUT on the
+# list path — nv::resource_delete cannot express them.
+_volume_delete() {
+  local id body
+  nv::require_pos id "usage: nv volume delete <id>"
+  nv::require_id id "$id" "storage id"
+  body="$(nv::json_obj storageId "$(nv::json_str "$id")")"
+  nv::http_v1 POST /networkstorage/delete "$body" >/dev/null
+  nv::ok "deleted volume $id"
+}
+
+_volume_update() {
+  local id name size body
+  nv::require_pos id "usage: nv volume update <id> [--name <n>] [--size <gb>]"
+  nv::require_id id "$id" "storage id"
+  name="$(nv::args_get name)"
+  # The uint read is caught so a bad flag value exits 2 from THIS shell rather
+  # than being swallowed inside the substitution.
+  size="$(nv::args_get_uint size)" || exit 2
+  [[ -n "$name" || -n "$size" ]] || nv::usage "nothing to update (use --name, --size)"
+  body="$(nv::json_obj storageId "$(nv::json_str "$id")")"
+  nv::obj_set_str body storageName "$name"
+  nv::obj_set body storageSize "$size"
+  nv::http_v1 POST /networkstorage/update "$body" >/dev/null
+  nv::ok "updated volume $id"
 }
 
 ###
@@ -91,6 +120,32 @@ _volume_ls() {
 #
 # API: POST /gpu-instance/openapi/v1/networkstorage/create
 
+# doc: delete
+# Delete network storage permanently.
+#
+# Usage: nv volume delete <id>
+#
+# Arguments:
+#   <id>    storage id — from `nv volume list`
+#
+# API: POST /gpu-instance/openapi/v1/networkstorage/delete
+
+# doc: update
+# Rename or resize network storage.
+#
+# Usage: nv volume update <id> [--name <n>] [--size <gb>]
+#
+# Options:
+#   --name <n>    new storage name
+#   --size <gb>   new capacity in GB
+#
+# Notes:
+#   At least one flag is required; with none, the command exits with a usage
+#   error rather than sending an empty update. Resizing is subject to the
+#   API's rules — a shrink may be rejected server-side.
+#
+# API: POST /gpu-instance/openapi/v1/networkstorage/update
+
 nv::cmd_volume() {
   local verb="${1:-help}"
   shift || true
@@ -99,11 +154,15 @@ nv::cmd_volume() {
   case "$verb" in
   list) _volume_ls ;;
   create) _volume_create ;;
+  delete) _volume_delete ;;
+  update) _volume_update ;;
   -h | --help | help)
     cat <<'EOF'
 Usage: nv volume <verb> [flags]
   create --name <n> --size <gb> --cluster <id>   (idempotent by name; bare-string id response)
   list [--name <f>] [--id <f>] [--page N] [--limit N] [--json]
+  delete <id>
+  update <id> [--name <n>] [--size <gb>]
   (v1 namespace: camelCase bodies, pageNo/pageSize pagination)
 EOF
     ;;

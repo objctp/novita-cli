@@ -74,11 +74,18 @@ nav:
   - update: serverless-update.md
   - delete: serverless-delete.md
   - run: serverless-run.md
+  - status: serverless-status.md
+  - cancel: serverless-cancel.md
+  - health: serverless-health.md
 - Template:
   - template: template.md
   - list: template-list.md
   - create: template-create.md
+  - update: template-update.md
+  - delete: template-delete.md
 - Volume:
   - volume: volume.md
   - list: volume-list.md
   - create: volume-create.md
+  - delete: volume-delete.md
+  - update: volume-update.md

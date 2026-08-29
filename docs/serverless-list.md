@@ -1,5 +1,5 @@
 # nv serverless list
-List your serverless endpoints as a table: id, name, url, region.
+List your serverless endpoints as a table: id, name, url, region_id.
 
 ```
 nv serverless list [--json] [--jq <filter>] [--limit N] [--cursor <c>]

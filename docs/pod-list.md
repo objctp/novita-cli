@@ -15,6 +15,9 @@ nv pod list [--json] [--jq <filter>] [--limit N] [--cursor <c>]
 ```
 
 ## Notes
+  The status column renders the nested status.status state — `error` and
+  `message` stay on the record for --json/--jq, keeping the table one line
+  per pod.
   Pages are fetched server-side (v2 cursor pagination). When more pages
   exist, the next cursor is printed to stderr, leaving stdout clean for
   scripts; pass it back with --cursor.

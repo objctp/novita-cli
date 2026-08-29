@@ -5,5 +5,14 @@ List templates as a table: id, name.
 nv template list [--json] [--jq <filter>] [--limit N] [--cursor <c>]
 ```
 
+## Options
+
+```
+  --limit N      page size forwarded to the API (v2 cursor pagination)
+  --cursor <c>   opaque cursor of the next page; pairs with --limit
+  --jq <filter>  jq filter applied to the array
+  --json         print the raw API response
+```
+
 **API:** `GET /gpus/v2/templates`
 

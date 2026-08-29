@@ -1,9 +1,10 @@
 # nv registry
 Container-registry auths: credentials Novita uses to pull private images.
 Referenced as registry_auth_id in instance/endpoint create bodies
-(`nv pod create --registry <id>`). The v1 namespace confirms only the list
-route — auths are normally created in the Novita console, so this command is
-read-only.
+(`nv pod create --registry <id>`). The API does document save/delete routes
+(POST /repository/auth/save|delete), but the CLI stays read-only by design:
+credentials carrying passwords are managed in the Novita console, and nv
+deliberately never handles them.
 
 ```
 nv registry <verb> [flags]

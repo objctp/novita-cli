@@ -3,9 +3,10 @@
 # Container-registry auths: credentials Novita uses to pull private images.
 #
 # Referenced as registry_auth_id in instance/endpoint create bodies
-# (`nv pod create --registry <id>`). The v1 namespace confirms only the list
-# route — auths are normally created in the Novita console, so this command is
-# read-only.
+# (`nv pod create --registry <id>`). The API does document save/delete routes
+# (POST /repository/auth/save|delete), but the CLI stays read-only by design:
+# credentials carrying passwords are managed in the Novita console, and nv
+# deliberately never handles them.
 #
 # Usage: nv registry <verb> [flags]
 ###
@@ -36,9 +37,10 @@ _registry_list() {
 #
 # Notes:
 #   Each auth's id feeds `nv pod create --registry <id>` /
-#   `nv serverless create --registry <id>`. The v1 namespace confirms only the
-#   list route; create and delete happen in the Novita console. The record
-#   shape is not fully documented, so prefer --json when scripting.
+#   `nv serverless create --registry <id>`. The CLI is read-only by design —
+#   credentials with passwords are console-managed — although the API does
+#   document save/delete routes. The record shape is not fully documented,
+#   so prefer --json when scripting.
 #
 # API: GET /gpu-instance/openapi/v1/repository/auths
 

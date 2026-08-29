@@ -80,6 +80,60 @@ function test_list_tables_v1_field_names() {
   assert_contains "st-1" "$out"
 }
 
+# Delete/update are bespoke v1 POST verbs (NOT REST DELETE /networkstorages/{id}).
+function test_delete_posts_the_storage_id_to_the_delete_route() {
+  nv::args_parse st-9
+  _volume_delete >/dev/null 2>&1
+  assert_contains "POST /networkstorage/delete" "$(<"$VOL_CAPTURE")"
+  local body
+  body="$(<"$VOL_BODY")"
+  assert_equals "st-9" "$(printf '%s' "$body" | jq -r '.storageId')"
+}
+
+function test_delete_requires_an_id() {
+  nv::args_parse
+  (_volume_delete >/dev/null 2>&1)
+  assert_exit_code 2
+}
+
+function test_delete_rejects_a_malformed_id() {
+  nv::args_parse 'st/9'
+  (_volume_delete >/dev/null 2>&1)
+  assert_exit_code 2
+}
+
+function test_update_posts_storage_id_name_and_size() {
+  nv::args_parse st-9 --name renamed --size 50
+  _volume_update >/dev/null 2>&1
+  assert_contains "POST /networkstorage/update" "$(<"$VOL_CAPTURE")"
+  local body
+  body="$(<"$VOL_BODY")"
+  assert_equals "st-9" "$(printf '%s' "$body" | jq -r '.storageId')"
+  assert_equals "renamed" "$(printf '%s' "$body" | jq -r '.storageName')"
+  assert_equals "50" "$(printf '%s' "$body" | jq -r '.storageSize')"
+}
+
+function test_update_sends_only_the_set_fields() {
+  nv::args_parse st-9 --size 50
+  _volume_update >/dev/null 2>&1
+  local body
+  body="$(<"$VOL_BODY")"
+  assert_equals "false" "$(printf '%s' "$body" | jq -r 'has("storageName")')"
+  assert_equals "50" "$(printf '%s' "$body" | jq -r '.storageSize')"
+}
+
+function test_update_rejects_non_numeric_size() {
+  nv::args_parse st-9 --size big
+  (_volume_update >/dev/null 2>&1)
+  assert_exit_code 2
+}
+
+function test_update_exits_usage_with_nothing_to_change() {
+  nv::args_parse st-9
+  (_volume_update >/dev/null 2>&1)
+  assert_exit_code 2
+}
+
 function test_main_shell_routing_through_the_public_dispatcher() {
   nv::cmd_volume list >/dev/null 2>&1
   assert_contains "GET /networkstorages/list" "$(<"$VOL_CAPTURE")"
