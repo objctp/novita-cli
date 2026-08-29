@@ -1,0 +1,91 @@
+name: release
+
+# Publishes a GitHub Release whenever scripts/changelog.sh release pushes a bare
+# semver tag (1.0.0, no "v" prefix — matches cliff.toml's tag_pattern). The
+# pipeline, in order:
+#   1. build the universal tarball (nv is bash, so no per-OS/arch matrix) and
+#      its SHA256SUMS, stamping the version into lib/_version.sh;
+#   2. publish the GitHub Release (tarball + SHA256SUMS + changelog notes);
+#   3. publish the npm package novita-cli with OIDC provenance (dry-run gated;
+#      requires an NPM_TOKEN secret — remove this job if you do not publish).
+on:
+  push:
+    tags:
+      - "[0-9].*"
+
+# id-token:write lets `npm publish --provenance` mint an OIDC provenance
+# attestation; contents:write lets the Release be created through GITHUB_TOKEN.
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build tarball and checksums
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME}"
+          printf 'NV_VERSION="%s"\n' "$VERSION" > lib/_version.sh
+          tar czf "nv-$VERSION.tar.gz" bin lib commands LICENSE
+          sha256sum "nv-$VERSION.tar.gz" > SHA256SUMS
+          echo "Built nv-$VERSION.tar.gz"
+          cat SHA256SUMS
+
+      - name: Extract release notes from CHANGELOG.md
+        id: notes
+        run: |
+          # Extract the section after "# Changelog" up to the next "## [" or EOF
+          # This captures only the latest release's formatted notes
+          NOTES=$(awk '
+            /^# Changelog/ { in_changelog=1; next }
+            in_changelog && /^## \[/ {
+              if (!found_first) { found_first=1; next }  # Skip the first "## [" header
+              else { exit }                               # Stop at the second "## ["
+            }
+            found_first && in_changelog { print }         # Print content after first header
+          ' CHANGELOG.md)
+          # Add to GitHub Output (multiline, use EOF delimiter)
+          {
+            echo 'notes<<EOF'
+            echo "$NOTES"
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            nv-${{ github.ref_name }}.tar.gz
+            SHA256SUMS
+          body: ${{ steps.notes.outputs.notes }}
+
+      # ── npm channel (novita-cli) ──────────────────────────
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Stamp and validate the npm package
+        run: node scripts/build.mjs
+
+      - name: npm publish (dry-run gate)
+        # No --provenance here: an attestation can't be minted without a real
+        # publish, and attempting it makes the dry-run fail and block the step below.
+        run: npm publish --dry-run --access public
+
+      - name: npm publish novita-cli
+        # NODE_AUTH_TOKEN carries a publish token; --provenance attaches an OIDC
+        # attestation minted from the id-token:write permission above.
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if npm view "novita-cli@${GITHUB_REF_NAME}" version >/dev/null 2>&1; then
+            echo "npm: novita-cli@${GITHUB_REF_NAME} already published, skipping"
+          else
+            npm publish --access public --provenance
+          fi

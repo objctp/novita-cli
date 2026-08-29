@@ -1,0 +1,138 @@
+#!/usr/bin/env bash
+RP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+function set_up_before_script() {
+  local _opts
+  _opts=$(shopt -po errexit nounset pipefail 2>/dev/null || true)
+  source "$RP_ROOT/install.sh"
+  eval "$_opts"
+}
+
+# Reset the test-only override hooks before each test so they never leak between
+# tests (bashunit may run --parallel).
+function set_up() {
+  unset NV_UNAME NV_BASH_MAJOR NV_CHECKSUM NV_LATEST_TAG || true
+}
+
+# --- nv_inst_os ---
+
+function test_should_return_darwin_when_uname_darwin() {
+  NV_UNAME=Darwin
+  assert_equals "darwin" "$(nv_inst_os)"
+}
+
+function test_should_return_linux_when_uname_linux() {
+  NV_UNAME=Linux
+  assert_equals "linux" "$(nv_inst_os)"
+}
+
+function test_should_exit_one_when_os_unsupported() {
+  NV_UNAME=FreeBSD
+  (nv_inst_os >/dev/null 2>&1)
+  assert_exit_code 1
+}
+
+# --- nv_inst_bash_ok ---
+
+function test_should_pass_when_bash_major_five() {
+  NV_BASH_MAJOR=5
+  nv_inst_bash_ok
+  assert_successful_code "$?"
+}
+
+function test_should_exit_one_when_bash_major_three() {
+  NV_BASH_MAJOR=3
+  (nv_inst_bash_ok >/dev/null 2>&1)
+  assert_exit_code 1
+}
+
+# --- nv_inst_checksum_cmd ---
+
+function test_should_return_sha256sum_when_override_set() {
+  NV_CHECKSUM="sha256sum"
+  assert_equals "sha256sum" "$(nv_inst_checksum_cmd)"
+}
+
+function test_should_return_shasum_with_flag_when_override_set() {
+  NV_CHECKSUM="shasum -a 256"
+  assert_equals "shasum -a 256" "$(nv_inst_checksum_cmd)"
+}
+
+# --- url builders ---
+
+function test_should_build_download_url_when_version_given() {
+  assert_equals \
+    "https://github.com/objctp/novita-cli/releases/download/0.1.0/nv-0.1.0.tar.gz" \
+    "$(nv_inst_download_url 0.1.0)"
+}
+
+function test_should_build_checksum_url_when_version_given() {
+  assert_equals \
+    "https://github.com/objctp/novita-cli/releases/download/0.1.0/SHA256SUMS" \
+    "$(nv_inst_checksum_url 0.1.0)"
+}
+
+# --- nv_inst_resolve_version ---
+
+function test_should_return_override_when_latest_tag_set() {
+  NV_LATEST_TAG="2.3.4"
+  assert_equals "2.3.4" "$(nv_inst_resolve_version)"
+}
+
+function test_should_reject_a_malformed_latest_tag() {
+  NV_LATEST_TAG="../../evil"
+  (nv_inst_resolve_version >/dev/null 2>&1)
+  assert_exit_code 1
+}
+
+# --- nv_inst_on_path (search list passed explicitly to stay parallel-safe) ---
+
+function test_should_match_when_dir_in_search() {
+  nv_inst_on_path /somewhere/bin "/somewhere/bin:/usr/bin"
+  assert_successful_code "$?"
+}
+
+function test_should_exit_one_when_dir_not_in_search() {
+  nv_inst_on_path /nope "/usr/bin:/bin"
+  assert_exit_code 1
+}
+
+# --- nv_inst_member_is_unsafe (L5 tar member guard) ---
+
+function test_should_flag_absolute_tar_member_as_unsafe() {
+  nv_inst_member_is_unsafe "/etc/passwd"
+  assert_successful_code "$?"
+}
+
+function test_should_flag_traversal_tar_member_as_unsafe() {
+  nv_inst_member_is_unsafe "bin/../evil"
+  assert_successful_code "$?"
+  nv_inst_member_is_unsafe "../escape"
+  assert_successful_code "$?"
+  nv_inst_member_is_unsafe ".."
+  assert_successful_code "$?"
+}
+
+function test_should_accept_relative_tar_member_as_safe() {
+  nv_inst_member_is_unsafe "bin/nv"
+  assert_exit_code 1
+  nv_inst_member_is_unsafe "lib/common.sh"
+  assert_exit_code 1
+}
+
+# --- nv_inst_ensure_path (Q-L4 whitespace guard) ---
+
+function test_should_return_zero_when_dir_already_on_path() {
+  nv_inst_ensure_path "/usr/local/bin" "/usr/local/bin:/bin"
+  assert_successful_code "$?"
+}
+
+function test_should_skip_path_entry_when_dir_has_whitespace() {
+  local home_dir rc
+  home_dir="$(mktemp -d)"
+  HOME="$home_dir"
+  rc="$(nv_inst_ensure_path "/tmp/dir with space" 2>/dev/null || true)"
+  assert_empty "$rc"
+  [[ ! -f "$home_dir/.bashrc" ]]
+  rm -rf "$home_dir"
+}

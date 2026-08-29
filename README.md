@@ -11,13 +11,25 @@ Usage: nv <resource> <verb> [flags]
 
 ## Install
 
+One-liner (downloads the release tarball from GitHub, verifies its SHA-256, and
+links `nv` into `/usr/local/bin`):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/objctp/novita-cli/main/install.sh | bash
+```
+
+Overrides: `NV_INSTALL_DIR` (default `~/.nv`), `NV_BINDIR`
+(default `/usr/local/bin`), or pin a version with `bash install.sh --version 1.2.3`.
+
+From a checkout:
+
 ```sh
 git clone <this repo> && cd novita-cli
 sudo ln -sf "$(pwd)/bin/nv" /usr/local/bin/nv   # or add ./bin to PATH
 ```
 
-Requirements: Bash 5+, `jq`, `curl` (macOS: `brew install jq`; the system Bash
-is 3.x — use Homebrew Bash).
+Requirements: Bash 5+, `jq`, `curl` (macOS: `brew install jq bash`; the system
+Bash is 3.x).
 
 ## Quick start
 

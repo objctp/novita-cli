@@ -2,7 +2,19 @@
   "name": "novita-cli",
   "version": "0.1.0",
   "description": "A simple CLI for managing Novita AI GPU cloud infrastructure.",
+  "author": {
+    "name": "objct",
+    "url": "https://objct.link"
+  },
   "license": "MIT",
+  "homepage": "https://github.com/objctp/novita-cli",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/objctp/novita-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/objctp/novita-cli/issues"
+  },
   "type": "module",
   "bin": {
     "nv": "./bin/nv"
@@ -21,6 +33,10 @@
     "novita-cli"
   ],
   "scripts": {
-    "docs": "scripts/gen-manual.sh"
+    "changelog": "scripts/changelog.sh unreleased",
+    "changelog:preview": "scripts/changelog.sh preview",
+    "release": "scripts/changelog.sh release",
+    "docs": "scripts/gen-manual.sh",
+    "build": "scripts/build.mjs"
   }
 }
