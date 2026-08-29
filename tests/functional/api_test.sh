@@ -17,20 +17,33 @@ function set_up_before_script() {
 
 function set_up() {
   API_CAPTURE="$(mktemp)"
+  API_BODY="$(mktemp)"
+  API_STUB_BODY='{"data":[]}'
   nv::http() {
     printf '%s %s\n' "$1" "$2" >>"$API_CAPTURE"
-    [[ -n "${3:-}" ]] && printf '%s' "$3" >>"$API_CAPTURE"
-    printf '%s' "${API_STUB_BODY:-{"data":[]}}"
+    if [[ -n "${3:-}" ]]; then
+      printf '%s' "$3" >"$API_BODY"
+    fi
+    printf '%s' "$API_STUB_BODY"
   }
   nv::http_v1() {
     printf '%s %s\n' "$1" "$2" >>"$API_CAPTURE"
-    [[ -n "${3:-}" ]] && printf '%s' "$3" >>"$API_CAPTURE"
-    printf '%s' "${API_STUB_BODY:-{"data":[]}}"
+    if [[ -n "${3:-}" ]]; then
+      printf '%s' "$3" >"$API_BODY"
+    fi
+    printf '%s' "$API_STUB_BODY"
+  }
+  nv::http_async() {
+    printf '%s %s\n' "$1" "$2" >>"$API_CAPTURE"
+    if [[ -n "${3:-}" ]]; then
+      printf '%s' "$3" >"$API_BODY"
+    fi
+    printf '%s' "$API_STUB_BODY"
   }
 }
 
 function tear_down() {
-  rm -f "$API_CAPTURE"
+  rm -f "$API_CAPTURE" "$API_BODY"
 }
 
 function test_defaults_to_the_v2_namespace() {
@@ -46,6 +59,13 @@ function test_ns_v1_routes_through_http_v1() {
   assert_contains "GET /clusters" "$(<"$API_CAPTURE")"
 }
 
+function test_ns_async_routes_through_http_async() {
+  rm -f "$API_CAPTURE"
+  nv::cmd_api POST /ep-1/run --ns async --body '{"input":{}}' >/dev/null 2>&1
+  assert_contains "POST /ep-1/run" "$(<"$API_CAPTURE")"
+  assert_contains '{"input":{}}' "$(<"$API_BODY")"
+}
+
 function test_method_is_uppercased() {
   nv::cmd_api get /instances >/dev/null 2>&1
   assert_contains "GET /instances" "$(<"$API_CAPTURE")"
@@ -54,7 +74,7 @@ function test_method_is_uppercased() {
 
 function test_body_is_forwarded() {
   nv::cmd_api POST /instances --body '{"name":"x"}' >/dev/null 2>&1
-  assert_contains '{"name":"x"}' "$(<"$API_CAPTURE")"
+  assert_contains '{"name":"x"}' "$(<"$API_BODY")"
 }
 
 function test_body_file_is_read_with_at_prefix() {
@@ -62,7 +82,7 @@ function test_body_file_is_read_with_at_prefix() {
   f="$(mktemp)"
   printf '{"name":"from-file"}' >"$f"
   nv::cmd_api POST /instances --body "@$f" >/dev/null 2>&1
-  assert_contains '{"name":"from-file"}' "$(<"$API_CAPTURE")"
+  assert_contains '{"name":"from-file"}' "$(<"$API_BODY")"
   rm -f "$f"
 }
 

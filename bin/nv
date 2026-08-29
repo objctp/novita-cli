@@ -121,16 +121,16 @@ Usage: nv <resource> <verb> [flags]   (no args prints this help)
 
 Resources:
   pod        GPU instances (create, start/stop, CRUD)          — v2 /instances
-  serverless serverless endpoints (create, scale, run jobs, CRUD) — v2 /endpoints
+  serverless serverless endpoints (create, scale, CRUD, invoke) — v2 /endpoints
   catalog    GPU products per category + regions               — v2 /products, /regions
-  template   templates (list, create)                          — v2 /templates
+  template   templates (CRUD)                                  — v2 /templates
   cluster    datacentre clusters (read-only)                   — v1 /clusters
-  volume     network storage (create, list)                    — v1 /networkstorages
+  volume     network storage (create, list, update, delete)    — v1 /networkstorages
   registry   container-registry auths (list)                   — v1 /repository/auths
   auth       manage API-key accounts in a per-user store
 
 Meta:
-  api        raw namespaced call (escape hatch over nv::api_call; --ns v2|v1)
+  api        raw namespaced call (escape hatch over nv::api_call; --ns v2|v1|async)
   doc        show command / library documentation (nv doc [filter])
   version / --version / -v   print the installed version
 
@@ -147,7 +147,8 @@ Examples:
   nv pod stop <id> && nv pod start <id>
   nv serverless create --name api --product <id> --image <img> --region <id> \
       --app my-app --min 0 --max 1 --idle 300
-  nv serverless run <id> --input '{"prompt":"hello"}'
+  nv serverless run <id> --input '{"prompt":"hello"}'   # async: shared gateway
+  nv serverless status <id> <job_id>
 
 Add --json to list/get commands for raw JSON.
 Add --insecure (or -k, or NV_INSECURE_TLS=1) to skip TLS certificate verification

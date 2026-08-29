@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # Novita transport — the single curl implementation shared by every client.
-# Novita serves the whole GPU cloud from ONE host (https://api.novita.ai) under
+# Novita serves the GPU cloud API from ONE host (https://api.novita.ai) under
 # TWO namespaces: v2 (/gpus/v2, snake_case, cursor-paginated) and v1
-# (/gpu-instance/openapi/v1, camelCase, pageNo-paginated). All auth-header,
-# payload, timeout, and status handling lives here; the public clients in
-# lib/http.sh are thin facades over nv::api_call. Sourced by bin/nv.
+# (/gpu-instance/openapi/v1, camelCase, pageNo-paginated); async serverless
+# invocation uses a THIRD base off that host entirely
+# (https://async-public.serverless.novita.ai/v1), and sync-direct invokes go
+# to each endpoint's own `url`. All auth-header, payload, timeout, and status
+# handling lives here; the public clients in lib/http.sh are thin facades over
+# nv::api_call. Sourced by bin/nv.
 [[ -n "${_NV_TRANSPORT:-}" ]] && return 0
 _NV_TRANSPORT=1
 
@@ -31,16 +34,17 @@ _nv_insecure_warn() {
 }
 
 # Base URL for an API namespace. Resolved at call time so env overrides of
-# NV_BASE_V2 / NV_BASE_V1 (set in lib/common.sh) take effect. The serverless
-# invoke route has no namespace base of its own — each endpoint record carries
-# its own `url` field, invoked verbatim (see nv::http_url in lib/http.sh).
-# Every client routes through here, so the insecure-transport guard below
-# covers all of them.
+# NV_BASE_V2 / NV_BASE_V1 / NV_BASE_ASYNC (set in lib/common.sh) take effect.
+# The sync-direct serverless invoke has no namespace base of its own — each
+# endpoint record carries its own `url` field, invoked verbatim (see
+# nv::http_url in lib/http.sh). Every client routes through here, so the
+# insecure-transport guard below covers all of them.
 _nv_ns_base() {
   local base
   case "$1" in
   v2) base="${NV_BASE_V2:-https://api.novita.ai/gpus/v2}" ;;
   v1) base="${NV_BASE_V1:-https://api.novita.ai/gpu-instance/openapi/v1}" ;;
+  async) base="${NV_BASE_ASYNC:-https://async-public.serverless.novita.ai/v1}" ;;
   *) return 1 ;;
   esac
   # Refuse plaintext transport: the Bearer key would cross the wire in cleartext.

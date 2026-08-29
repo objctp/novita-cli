@@ -7,6 +7,7 @@
 - Add release automation, git hooks, doc generation, and installer
 - Add delete and update verbs
 - Require --type and add update and delete verbs
+- Redesign run around the documented two-surface contract
 
 ### Changed
 

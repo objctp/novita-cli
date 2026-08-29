@@ -4,8 +4,10 @@
 #
 # An endpoint is an autoscaling pool of worker containers running your image:
 # Novita schedules workers per the worker_config, scales on the policy, and
-# health-checks them. Jobs are invoked against the endpoint's own `url` field
-# (a customer-owned host), not a shared Novita data-plane host.
+# health-checks them. Invocation is TWO-SURFACE: a sync endpoint's own `url`
+# serves your HTTP service on arbitrary paths, whilst an async endpoint's jobs
+# go through the shared gateway host (run/status/cancel/health) — never to the
+# endpoint's url.
 #
 # Usage: nv serverless <verb> [flags]
 #
@@ -104,23 +106,108 @@ _serverless_update() {
   nv::emit_json_or "$res" nv::ok "updated endpoint $id"
 }
 
-# Invoke a job on the endpoint's OWN url field (from the endpoint record), not a
-# shared data-plane host. Default POSTs <url>/run (async); --sync posts
-# <url>/runsync. The --input value (inline JSON, or @file) is sent as the body.
+# Compose the async gateway's {endpoint_name} from a record: the SDK-documented
+# `{endpoint_id}-{app_name}`, reducing to the bare id when no app_name applies.
+# The record's display `name` never enters the job URL.
+_serverless_endpoint_name() {
+  local rec="$1" id="$2" app
+  app="$(printf '%s' "$rec" | jq -r '.app_name // empty')"
+  printf '%s' "${id}${app:+-$app}"
+}
+
+# Fetch the record and compose its async gateway name in one step — the
+# status/cancel/health verbs (and async run) all need exactly this.
+_serverless_endpoint_name_for() {
+  local id="$1"
+  _serverless_endpoint_name "$(nv::http GET "/endpoints/$id")" "$id"
+}
+
+# Async run body: wrap the payload as the documented {"input": …} job body. A
+# payload that already carries an input key passes through unwrapped,
+# mirroring the official SDK's run(); an empty payload wraps as {}. A
+# non-JSON payload dies here — the gateway takes JSON only, and a silently
+# empty body would be far harder to diagnose.
+_serverless_async_body() {
+  local input="$1"
+  local payload="${input:-}"
+  [[ -n "$payload" ]] || payload='{}'
+  if printf '%s' "$payload" | jq -e 'type == "object" and has("input")' >/dev/null 2>&1; then
+    printf '%s' "$payload"
+    return 0
+  fi
+  jq -c -n --argjson input "$payload" '{input: $input}' 2>/dev/null ||
+    nv::die "--input is not valid JSON: $payload"
+}
+
+# The two invocation surfaces, dispatched on the record's type:
+#   sync  — POST the customer's HTTP service at {url}{path} (--path appends;
+#           NO default path) through nv::http_url;
+#   async — POST {"input": …} to the shared gateway /{endpoint_name}/run.
+# --sync was removed with the /runsync route it targeted (the route appears in
+# no current official doc): the flag dies pointing at the two surfaces.
 _serverless_run() {
-  local id input url res
-  nv::require_pos id "usage: nv serverless run <id> [--input <json>|@file] [--sync]"
+  local id input res rec
+  nv::require_pos id "usage: nv serverless run <id> [--input <json>|@file] [--path <p>]"
   nv::require_id id "$id" "endpoint id"
+  nv::args_has sync &&
+    nv::usage "usage: nv serverless run <id> — --sync was removed (no /runsync route is documented); sync endpoints POST {url}{path} directly and async endpoints submit via the shared host — see 'nv doc serverless run'"
   input="$(nv::args_get input)"
   if [[ -n "$input" && "$input" == @* ]]; then
     input="$(<"${input#@}")" || nv::die "cannot read --input file: ${input#@}"
   fi
-  url="$(nv::http GET "/endpoints/$id" | jq -r '.url // empty')"
-  [[ -n "$url" ]] || nv::die "endpoint $id returned no url — the record must carry the invoke URL"
-  local path="/run"
-  nv::args_has sync && path="/runsync"
-  res="$(nv::http_url POST "$url$path" "$input")"
+  rec="$(nv::http GET "/endpoints/$id")"
+  if [[ "$(printf '%s' "$rec" | jq -r '.type // "sync"')" == "async" ]]; then
+    [[ -z "$(nv::args_get path)" ]] ||
+      nv::usage "usage: nv serverless run <id> — --path applies to sync endpoints only (async jobs go to the shared gateway)"
+    local ename body
+    ename="$(_serverless_endpoint_name "$rec" "$id")"
+    # Serialize BEFORE the http_async substitution: a die inside $() would be
+    # swallowed, so the builder's failure is caught out here instead.
+    body="$(_serverless_async_body "$input")" || exit 1
+    res="$(nv::http_async POST "/$ename/run" "$body")"
+  else
+    local url path
+    url="$(printf '%s' "$rec" | jq -r '.url // empty')"
+    [[ -n "$url" ]] || nv::die "endpoint $id returned no url — the record must carry the invoke URL"
+    path="$(nv::args_get path)"
+    res="$(nv::http_url POST "$url$path" "$input")"
+  fi
   nv::emit_json_or "$res" printf '%s\n' "$res"
+}
+
+# Poll one async job. Output shape is only partially evidenced (status,
+# output), so the response is passed through verbatim.
+_serverless_status() {
+  local id job ename res
+  nv::require_pos id "usage: nv serverless status <id> <job_id>"
+  nv::require_id id "$id" "endpoint id"
+  nv::require_pos_at 1 job "usage: nv serverless status <id> <job_id>"
+  nv::require_id job "$job" "job id"
+  ename="$(_serverless_endpoint_name_for "$id")"
+  res="$(nv::http_async GET "/$ename/status/$job")"
+  nv::emit_json_or "$res" nv::json_pretty "$res"
+}
+
+# Cancel one async job: POST, no body, undocumented response — verbatim.
+_serverless_cancel() {
+  local id job ename res
+  nv::require_pos id "usage: nv serverless cancel <id> <job_id>"
+  nv::require_id id "$id" "endpoint id"
+  nv::require_pos_at 1 job "usage: nv serverless cancel <id> <job_id>"
+  nv::require_id job "$job" "job id"
+  ename="$(_serverless_endpoint_name_for "$id")"
+  res="$(nv::http_async POST "/$ename/cancel/$job")"
+  nv::emit_json_or "$res" nv::json_pretty "$res"
+}
+
+# Async queue health: workers and jobs counters, verbatim.
+_serverless_health() {
+  local id ename res
+  nv::require_pos id "usage: nv serverless health <id>"
+  nv::require_id id "$id" "endpoint id"
+  ename="$(_serverless_endpoint_name_for "$id")"
+  res="$(nv::http_async GET "/$ename/health")"
+  nv::emit_json_or "$res" nv::json_pretty "$res"
 }
 
 ###
@@ -203,29 +290,75 @@ _serverless_run() {
 # API: DELETE /gpus/v2/endpoints/{id}
 
 # doc: run
-# Invoke a job on the endpoint's own URL.
+# Invoke a job: sync endpoints POST the endpoint's url directly, async
+# endpoints submit to the shared gateway.
 #
-# Usage: nv serverless run <id> [--input <json>|@file] [--sync]
+# Usage: nv serverless run <id> [--input <json>|@file] [--path <p>]
 #
 # Arguments:
 #   <id>             endpoint id — from `nv serverless list`
 #
 # Options:
-#   --input <json>   request body; inline JSON or @file (default: empty)
-#   --sync           POST <url>/runsync instead of <url>/run (blocks on the job)
+#   --input <json>   request payload; inline JSON or @file
+#   --path <p>       sync only: path appended to the endpoint's url
+#                    (default: none — the url is POSTed bare)
 #
 # Notes:
-#   The endpoint record carries its own `url` field; the job goes there, not
-#   to a shared Novita host. Without --sync the call returns as soon as the
-#   job is accepted. The invoke budget is 300 s; override with NV_TIMEOUT_INVOKE.
+#   Dispatched on the endpoint record's type. A sync endpoint's `url` serves
+#   your HTTP service on arbitrary paths (e.g. --path /v1/chat/completions);
+#   the payload is sent verbatim. An async endpoint submits {"input": …} to
+#   the shared gateway (payloads already carrying an input key pass through),
+#   which answers {id, status: PENDING}; poll with `nv serverless status`,
+#   abort with `nv serverless cancel`. The sync surface can block on the
+#   customer's service: invoke budget 300 s, override with NV_TIMEOUT_INVOKE.
+#   --sync was removed: no /runsync route is documented.
 #
 # Examples:
-# # Fire and forget
+# # Sync endpoint: chat completion against the customer path
+# $ nv serverless run ep123 --path /v1/chat/completions --input '{"messages":[…]}'
+# # Async endpoint: fire and forget, then poll
 # $ nv serverless run ep123 --input '{"prompt":"hello"}'
-# # Block until the job completes
-# $ nv serverless run ep123 --sync --input @job.json
+# $ nv serverless status ep123 <job_id>
 #
-# API: GET /gpus/v2/endpoints/{id}, then POST <url>/run|/runsync
+# API: GET /gpus/v2/endpoints/{id}, then POST {url}{path} (sync) or
+#      POST https://async-public.serverless.novita.ai/v1/{endpoint_name}/run
+#      (async)
+
+# doc: status
+# Poll one async job's status and output.
+#
+# Usage: nv serverless status <id> <job_id> [--json]
+#
+# Arguments:
+#   <id>      endpoint id — from `nv serverless list`
+#   <job_id>  job id — from `nv serverless run`
+#
+# Notes:
+#   GETs the shared gateway (never the endpoint's url). Output is ≤ 4 MiB and
+#   retained for 6 hours after completion.
+#
+# API: GET https://async-public.serverless.novita.ai/v1/{endpoint_name}/status/{job_id}
+
+# doc: cancel
+# Cancel one async job.
+#
+# Usage: nv serverless cancel <id> <job_id> [--json]
+#
+# Arguments:
+#   <id>      endpoint id — from `nv serverless list`
+#   <job_id>  job id — from `nv serverless run`
+#
+# API: POST https://async-public.serverless.novita.ai/v1/{endpoint_name}/cancel/{job_id}
+
+# doc: health
+# Show an async endpoint's queue health: worker and job counters.
+#
+# Usage: nv serverless health <id> [--json]
+#
+# Arguments:
+#   <id>    endpoint id — from `nv serverless list`
+#
+# API: GET https://async-public.serverless.novita.ai/v1/{endpoint_name}/health
 
 nv::cmd_serverless() {
   local verb="${1:-help}"
@@ -241,6 +374,9 @@ nv::cmd_serverless() {
   update) _serverless_update ;;
   delete) nv::resource_delete serverless ;;
   run) _serverless_run ;;
+  status) _serverless_status ;;
+  cancel) _serverless_cancel ;;
+  health) _serverless_health ;;
   -h | --help | help)
     cat <<'EOF'
 Usage: nv serverless <verb> [flags]
@@ -250,7 +386,9 @@ Usage: nv serverless <verb> [flags]
          [--port N]... [--volume <id>:<path>]... [--health-path <p> --health-port N]
          (idempotent by name)
   list | get <id> | update <id> [--name|--min|--max|--idle|--concurrent] | delete <id>
-  run <id> [--input <json>|@file] [--sync]   (POSTs the endpoint's own url)
+  run <id> [--input <json>|@file] [--path <p>]   (sync: POSTs the endpoint's
+                                                  url; async: shared gateway)
+  status <id> <job_id> | cancel <id> <job_id> | health <id>   (async jobs)
 EOF
     ;;
   *) nv::usage "unknown serverless verb: '$verb'" ;;

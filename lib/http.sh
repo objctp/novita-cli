@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Novita HTTP clients — namespace-addressed (v2/v1) wrappers plus the
-# per-endpoint serverless invoke. Thin facades over nv::api_call in
+# Novita HTTP clients — namespace-addressed (v2/v1/async) wrappers plus the
+# per-endpoint sync-direct invoke. Thin facades over nv::api_call in
 # lib/transport.sh; all curl lives in the shared transport module. Sourced by
 # bin/nv; not executed directly.
 # shellcheck source=transport.sh
@@ -83,6 +83,20 @@ nv::http_v1() {
   nv::_http_ns v1 "$1" "$2" "${3:-}" "${4:-}"
 }
 
+# Async serverless invocation gateway (https://async-public.serverless.novita.ai
+# /v1 — a shared host OFF api.novita.ai). Async-endpoint jobs submit, poll,
+# cancel and report queue health there; the path segment is the composed
+# {endpoint_id}-{app_name}. Sync endpoints are NOT invoked here — their own
+# `url` serves the customer's HTTP service (nv::http_url).
+# Arguments:
+#   $1 - method: HTTP method (GET for status/health, POST for run/cancel)
+#   $2 - path: gateway path (e.g. /{endpoint_name}/run)
+#   $3 - body: optional JSON request body
+#   $4 - max_time: optional --max-time seconds (default 120)
+nv::http_async() {
+  nv::_http_ns async "$1" "$2" "${3:-}" "${4:-}"
+}
+
 # Descriptor-aware dispatch: route through the namespace the current resource
 # descriptor (_resource_meta in lib/resource.sh) declared. Used by the shared
 # resource verbs so their call sites stay namespace-blind.
@@ -94,12 +108,15 @@ nv::res_http() {
   fi
 }
 
-# Absolute-URL call for the serverless invoke: each endpoint record carries its
-# own `url` field (a customer-owned host), so jobs are POSTed there verbatim
-# rather than to a shared data-plane host. The route blocks on job completion,
-# so the default --max-time is NV_TIMEOUT_INVOKE (300 s); $4 overrides it.
+# Absolute-URL call for the SYNC-direct serverless invoke: each endpoint
+# record carries its own `url` field (a customer-owned host serving the
+# customer's HTTP service on arbitrary paths), so requests are POSTed there
+# verbatim rather than to a shared host. Async endpoints never invoke here —
+# their jobs go through nv::http_async. The call can block on the customer's
+# service, so the default --max-time is NV_TIMEOUT_INVOKE (300 s); $4
+# overrides it.
 # Arguments:
-#   $1 - method: HTTP method (POST for a job submit)
+#   $1 - method: HTTP method (POST for an invocation)
 #   $2 - url: the endpoint's own invoke URL (must be https unless
 #             NV_ALLOW_INSECURE_HTTP is set — enforced here, not only for the
 #             namespace bases, because the key crosses the wire either way)

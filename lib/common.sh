@@ -24,6 +24,10 @@ NV_ROOT="${NV_ROOT:-$(cd "${BASH_SOURCE[0]%/*}/.." && pwd)}"
 # Override to pin a staging host. Route by resource, not by a single "plane".
 NV_BASE_V2="${NV_BASE_V2:-https://api.novita.ai/gpus/v2}"
 NV_BASE_V1="${NV_BASE_V1:-https://api.novita.ai/gpu-instance/openapi/v1}"
+# The async serverless invocation gateway is a THIRD base, off api.novita.ai
+# entirely: async-endpoint jobs submit there, never to the endpoint's own url
+# (which serves the customer's HTTP service on sync endpoints).
+NV_BASE_ASYNC="${NV_BASE_ASYNC:-https://async-public.serverless.novita.ai/v1}"
 
 # Distinct exit codes so `nv` is scriptable without parsing stderr:
 #   1 general/transport/API error · 2 usage · 3 auth · 4 not-found

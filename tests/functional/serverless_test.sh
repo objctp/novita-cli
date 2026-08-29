@@ -17,12 +17,15 @@ function set_up_before_script() {
 }
 
 # Double: METHOD+PATH -> SL_CAPTURE, body -> SL_BODY, answer from SL_STUB_BODY.
+# nv::http_async is doubled alongside nv::http_url because both drive curl
+# outside the doubled nv::http.
 function set_up() {
   SL_CAPTURE="$(mktemp)"
   SL_BODY="$(mktemp)"
   SL_STUB_BODY='{"id":"new-ep"}'
-  # The run verb goes through nv::http_url, which preflights the key outside
-  # the doubled nv::http — provide one so the invoke seam is reachable.
+  SL_ASYNC_STUB_BODY='{"id":"job-1","status":"PENDING"}'
+  # The invoke seams preflight the key outside the doubled nv::http — provide
+  # one so they are reachable.
   export NOVITA_API_KEY="nv-test"
   nv::http() {
     printf '%s %s\n' "$1" "$2" >>"$SL_CAPTURE"
@@ -30,6 +33,13 @@ function set_up() {
       printf '%s' "$3" >"$SL_BODY"
     fi
     printf '%s' "$SL_STUB_BODY"
+  }
+  nv::http_async() {
+    printf '%s %s\n' "$1" "$2" >>"$SL_CAPTURE"
+    if [[ -n "${3:-}" ]]; then
+      printf '%s' "$3" >"$SL_BODY"
+    fi
+    printf '%s' "$SL_ASYNC_STUB_BODY"
   }
 }
 
@@ -165,13 +175,13 @@ function test_update_exits_usage_with_nothing_to_change() {
   assert_exit_code 2
 }
 
-# The run verb must resolve the endpoint's OWN url field and invoke there.
-# nv::http_url is doubled too (it drives curl directly, outside nv::http).
-function test_run_posts_to_the_endpoint_url_run() {
+# SYNC surface: a sync endpoint's own url serves the customer's HTTP service
+# directly — POST {url}{path}, with NO default path appended.
+function test_run_on_a_sync_endpoint_posts_to_the_bare_url() {
   nv::http() {
     printf '%s %s\n' "$1" "$2" >>"$SL_CAPTURE"
     if [[ "$2" == "/endpoints/ep-1" ]]; then
-      printf '{"id":"ep-1","url":"https://customer.example/inv"}'
+      printf '{"id":"ep-1","type":"sync","url":"https://customer.example/inv"}'
     else
       printf '{"id":"unexpected"}'
     fi
@@ -181,48 +191,140 @@ function test_run_posts_to_the_endpoint_url_run() {
     if [[ -n "${3:-}" ]]; then
       printf '%s' "$3" >"$SL_BODY"
     fi
-    printf '{"id":"job-1"}'
+    printf '{"answer":1}'
   }
   nv::args_parse ep-1 --input '{"prompt":"hello"}'
   local out
   out="$(_serverless_run 2>/dev/null)"
   assert_contains "GET /endpoints/ep-1" "$(<"$SL_CAPTURE")"
-  assert_contains "POST https://customer.example/inv/run" "$(<"$SL_CAPTURE")"
+  assert_contains "POST https://customer.example/inv" "$(<"$SL_CAPTURE")"
+  assert_not_contains "/run" "$(<"$SL_CAPTURE")"
   assert_contains '{"prompt":"hello"}' "$(<"$SL_BODY")"
-  assert_contains '"job-1"' "$out"
+  assert_contains '"answer"' "$out"
 }
 
-function test_run_sync_posts_runsync() {
+function test_run_on_a_sync_endpoint_appends_the_path_flag() {
   nv::http() {
     printf '%s %s\n' "$1" "$2" >>"$SL_CAPTURE"
-    if [[ "$2" == "/endpoints/ep-1" ]]; then
-      printf '{"id":"ep-1","url":"https://customer.example/inv"}'
-    else
-      printf '{"id":"job-1"}'
-    fi
+    printf '{"id":"ep-1","type":"sync","url":"https://customer.example/inv"}'
   }
   nv::http_url() {
     printf '%s %s\n' "$1" "$2" >>"$SL_CAPTURE"
-    if [[ -n "${3:-}" ]]; then
-      printf '%s' "$3" >"$SL_BODY"
-    fi
-    printf '{"id":"job-2"}'
+    printf '{}'
   }
+  nv::args_parse ep-1 --path /v1/chat/completions
+  _serverless_run >/dev/null 2>&1
+  assert_contains "POST https://customer.example/inv/v1/chat/completions" "$(<"$SL_CAPTURE")"
+}
+
+# ASYNC surface: jobs go to the SHARED host, never the endpoint's url. The
+# path segment is the composed {endpoint_id}-{app_name}.
+function test_run_on_an_async_endpoint_submits_to_the_shared_host() {
+  nv::http() {
+    printf '%s %s\n' "$1" "$2" >>"$SL_CAPTURE"
+    if [[ "$2" == "/endpoints/ep-1" ]]; then
+      printf '{"id":"ep-1","type":"async","app_name":"my-app"}'
+    else
+      printf '{"id":"unexpected"}'
+    fi
+  }
+  nv::args_parse ep-1 --input '{"prompt":"hello"}'
+  local out
+  out="$(_serverless_run 2>/dev/null)"
+  assert_contains "POST /ep-1-my-app/run" "$(<"$SL_CAPTURE")"
+  assert_not_contains "customer.example" "$(<"$SL_CAPTURE")"
+  assert_contains '{"input":{"prompt":"hello"}}' "$(<"$SL_BODY")"
+  assert_contains '"PENDING"' "$out"
+}
+
+# A payload that already carries an input key passes through unwrapped
+# (mirrors the official SDK's run()).
+function test_run_on_an_async_endpoint_keeps_a_pre_wrapped_input() {
+  nv::http() { printf '{"id":"ep-1","type":"async","app_name":"my-app"}'; }
+  nv::args_parse ep-1 --input '{"input":{"n":1}}'
+  _serverless_run >/dev/null 2>&1
+  assert_contains '{"input":{"n":1}}' "$(<"$SL_BODY")"
+}
+
+function test_run_on_an_async_endpoint_uses_the_bare_id_without_app_name() {
+  nv::http() { printf '{"id":"ep-1","type":"async"}'; }
+  nv::args_parse ep-1
+  _serverless_run >/dev/null 2>&1
+  assert_contains "POST /ep-1/run" "$(<"$SL_CAPTURE")"
+  assert_contains '{"input":{}}' "$(<"$SL_BODY")"
+}
+
+function test_run_reads_the_input_payload_from_a_file() {
+  nv::http() { printf '{"id":"ep-1","type":"async","app_name":"a"}'; }
   local f
   f="$(mktemp)"
   printf '{"n":1}' >"$f"
-  nv::args_parse ep-1 --sync --input "@$f"
+  nv::args_parse ep-1 --input "@$f"
   _serverless_run >/dev/null 2>&1
-  assert_contains "POST https://customer.example/inv/runsync" "$(<"$SL_CAPTURE")"
-  assert_contains '{"n":1}' "$(<"$SL_BODY")"
+  assert_contains '{"input":{"n":1}}' "$(<"$SL_BODY")"
   rm -f "$f"
 }
 
-function test_run_dies_when_the_record_has_no_url() {
-  nv::http() { printf '{"id":"ep-1"}'; }
+function test_run_rejects_path_on_an_async_endpoint() {
+  nv::http() { printf '{"id":"ep-1","type":"async","app_name":"a"}'; }
+  nv::args_parse ep-1 --path /v1/chat
+  (_serverless_run >/dev/null 2>&1)
+  assert_exit_code 2
+}
+
+function test_run_dies_on_a_non_json_async_payload() {
+  nv::http() { printf '{"id":"ep-1","type":"async","app_name":"a"}'; }
+  nv::args_parse ep-1 --input 'not json'
+  (_serverless_run >/dev/null 2>&1)
+  assert_exit_code 1
+}
+
+# --sync and /runsync are gone: no alias shim, the flag dies pointing at the
+# two-surface verbs.
+function test_run_rejects_the_removed_sync_flag() {
+  nv::http() { printf '{"id":"ep-1","type":"sync","url":"https://customer.example/inv"}'; }
+  nv::args_parse ep-1 --sync
+  (_serverless_run >/dev/null 2>&1)
+  assert_exit_code 2
+}
+
+function test_run_dies_when_a_sync_record_has_no_url() {
+  nv::http() { printf '{"id":"ep-1","type":"sync"}'; }
   nv::args_parse ep-1
   (_serverless_run >/dev/null 2>&1)
   assert_exit_code 1
+}
+
+# Async aux verbs against the shared host.
+function test_status_polls_the_shared_host() {
+  nv::http() { printf '{"id":"ep-1","type":"async","app_name":"my-app"}'; }
+  nv::args_parse ep-1 job-9
+  local out
+  out="$(_serverless_status 2>/dev/null)"
+  assert_contains "GET /ep-1-my-app/status/job-9" "$(<"$SL_CAPTURE")"
+  assert_contains '"status"' "$out"
+}
+
+function test_cancel_posts_to_the_shared_host_without_a_body() {
+  nv::http() { printf '{"id":"ep-1","type":"async","app_name":"my-app"}'; }
+  nv::args_parse ep-1 job-9
+  _serverless_cancel >/dev/null 2>&1
+  assert_contains "POST /ep-1-my-app/cancel/job-9" "$(<"$SL_CAPTURE")"
+  assert_equals "" "$(<"$SL_BODY")"
+}
+
+function test_health_gets_the_queue_status_route() {
+  nv::http() { printf '{"id":"ep-1","type":"async","app_name":"my-app"}'; }
+  nv::args_parse ep-1
+  _serverless_health >/dev/null 2>&1
+  assert_contains "GET /ep-1-my-app/health" "$(<"$SL_CAPTURE")"
+}
+
+function test_status_requires_a_job_id() {
+  nv::http() { printf '{"id":"ep-1","type":"async"}'; }
+  nv::args_parse ep-1
+  (_serverless_status >/dev/null 2>&1)
+  assert_exit_code 2
 }
 
 # The endpoint record's region field is region_id (not region) — the column
