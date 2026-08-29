@@ -44,7 +44,8 @@ nv pod create --name dev --product <id> --image docker.io/library/ubuntu:22.04
 nv pod stop <id> && nv pod start <id>
 nv serverless create --name api --product <id> --image <img> \
     --app my-app --region <id> --min 0 --max 1 --idle 300
-nv serverless run <id> --input '{"prompt":"hello"}' --sync
+nv serverless run <id> --input '{"prompt":"hello"}'   # async endpoint: shared gateway
+nv serverless status <id> <job_id>
 ```
 
 Add `--json` to any list/get for raw JSON, `--jq '<filter>'` to filter, and
@@ -71,25 +72,27 @@ The `data` unwrap key is uniform across both.
 | Resource | Namespace | Verbs |
 |---|---|---|
 | `pod` | v2 `/instances` | list, get, create, start, stop, delete |
-| `serverless` | v2 `/endpoints` | list, get, create, update, delete, run |
+| `serverless` | v2 `/endpoints` | list, get, create, update, delete, run, status, cancel, health |
 | `catalog` | v2 `/products`, `/regions` | gpu, serverless, regions |
-| `template` | v2 `/templates` | list, create (create route unverified) |
+| `template` | v2 `/templates` | list, create, update, delete |
 | `cluster` | v1 `/clusters` | list (read-only) |
-| `volume` | v1 `/networkstorages` | create, list |
+| `volume` | v1 `/networkstorages` | create, list, update, delete |
 | `registry` | v1 `/repository/auths` | list (read-only) |
 | `auth` | — | login, logout, switch/use, list, status |
-| `api` | both | raw namespaced call (`--ns v2\|v1`) |
+| `api` | both | raw namespaced call (`--ns v2\|v1\|async`) |
 | `doc` | — | embedded reference manual |
 
 Notable behaviours:
 
 - **Create is idempotent by name** — re-running with the same `--name` prints
   the existing id instead of POSTing; `--force` overrides.
-- **Serverless run invokes the endpoint's own `url`** (from the endpoint
-  record), not a shared Novita host. `/run` by default, `/runsync` with
-  `--sync`.
+- **Serverless invocation is two-surface**, dispatched on the endpoint's
+  `type`: sync endpoints POST your HTTP service at the record's own `url`
+  (arbitrary paths via `--path`), async endpoints submit jobs to the shared
+  gateway (`run` → `status`/`cancel`, plus `health` for the queue).
 - **Volume create answers a bare JSON string id** — `nv::extract_id` handles
-  both shapes, so `id=$(nv volume create …)` always captures the id.
+  all three shapes (object `.id`, template `.template_id`, bare string), so
+  `id=$(nv volume create …)` always captures the id.
 - **Distinct exit codes**: `0` ok · `1` general/API error · `2` usage ·
   `3` auth · `4` not-found · `130` interrupted.
 
@@ -116,7 +119,7 @@ make check    # lint + test
 ```
 
 Tests run offline: HTTP doubles stand in for `nv::http` / `nv::http_v1` /
-`nv::http_url`, so no network is touched. Layout:
+`nv::http_async` / `nv::http_url`, so no network is touched. Layout:
 
 ```
 bin/nv            entry point: .env loading, lib sourcing, dispatch
