@@ -1,0 +1,22 @@
+# Temporary / runtime
+*.tmp
+*.temp
+.DS_Store
+tmp/
+
+# Node / build
+node_modules/
+dist/
+
+# Test outputs
+test-results/
+coverage/
+.bashunit/
+
+# Secrets & caches
+.env
+.cache/
+
+# Release artefacts (make package)
+/nv-*.tar.gz
+/SHA256SUMS

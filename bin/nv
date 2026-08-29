@@ -1,0 +1,210 @@
+#!/usr/bin/env bash
+# Novita CLI (nv) entry point. Loads .env, sources lib/, dispatches <resource>
+# to commands/<resource>.sh (see _help).
+# Usage: nv <resource> <verb> [flags]
+set -euo pipefail
+# Resolve symlinks before locating the root, so nv works whether run from the
+# repo, via `make install`'s link, or via the installer's /usr/local/bin/nv
+# link. BASH_SOURCE is the invocation path (not the link target), so without
+# this NV_ROOT would land in /usr/local and lib/ sourcing would fail. readlink
+# is followed in a loop so relative and chained links both resolve; portable
+# across macOS (BSD) and Linux (GNU).
+_nv_src="${BASH_SOURCE[0]}"
+while [[ -L "${_nv_src}" ]]; do
+  _nv_dir="${_nv_src%/*}"
+  _nv_src="$(readlink "${_nv_src}")"
+  [[ "${_nv_src}" != /* ]] && _nv_src="${_nv_dir}/${_nv_src}"
+done
+NV_ROOT="$(cd "${_nv_src%/*}/.." && pwd)"
+export NV_ROOT
+unset _nv_src _nv_dir
+
+. "$NV_ROOT/lib/common.sh"
+# Re-derive the credential-store paths from the now-final NV_CONFIG_HOME.
+# constants.sh bakes these once on first evaluation, which is wrong if
+# NV_CONFIG_HOME is reassigned afterwards (e.g. in tests); pin them to the live
+# value so the active-account store always tracks the chosen config home.
+NV_CREDS_DIR="$NV_CONFIG_HOME/credentials.d"
+NV_ACTIVE_FILE="$NV_CONFIG_HOME/active"
+export NV_CREDS_DIR NV_ACTIVE_FILE
+# Hard runtime preflight (Bash 5+ / jq / curl) must run *before* the lib loop
+# below: lib/args.sh and friends use Bash 5 syntax (`declare -g`), so a too-old
+# Bash must be caught here with a clear message rather than a syntax error.
+nv::check_runtime
+# EXIT/HUP/TERM clean up temp files and continue; INT (Ctrl-C) exits quietly as
+# 130 ("interrupted") — without it a SIGINT inside curl would otherwise surface
+# as a bogus "curl transport error" from the emit helper. The EXIT trap still
+# runs to remove temp files on the way out.
+trap _tmp_cleanup EXIT HUP TERM
+trap 'exit 130' INT
+
+# Load $NV_ROOT/.env, but never source a group/world-writable file (an attacker
+# who can write it could inject NOVITA_API_KEY or startup code), and never let a
+# .env entry override a variable already exported to the environment (so an
+# explicit NOVITA_API_KEY / NOVITA_API_KEY_FILE on the command line wins).
+_nv_env_load() {
+  local f="$1" force="${2:-}" perm _ln _k _nv_xtrace
+  # A missing file is a clean no-op (the per-user config often doesn't exist yet
+  # on first run, and `set -e` would otherwise abort on the stat below).
+  [[ -f "$f" ]] || return 0
+  # Silence xtrace across the load: the loop reads NOVITA_API_KEY and exports
+  # it, so a `bash -x nv` trace would otherwise print the live key.
+  _nv_xtrace="$(nv::_xtrace_save)"
+  set +x
+  # Refuse group/world-writable .env (mode has any of the group/other write
+  # bits set). A writable .env is a clear compromise risk.
+  if stat -f '/dev/null' >/dev/null 2>&1; then
+    perm="$(stat -f '%Lp' "$f")"
+  else
+    perm="$(stat -c '%a' "$f")"
+  fi
+  if [[ "$perm" =~ ^[0-7]+$ ]] && ((8#$perm & 022)); then
+    nv::die "$f is group/world-writable (mode $perm); refusing to load it — run 'chmod go-w $f'"
+  fi
+  # Keep the readability warning for the private-but-leaked case (mode allows
+  # others to read, but not write). Warn, not die, here.
+  _warn_if_world_readable "$f"
+  # Load only variables NOT already set in the environment, so an exported value
+  # wins over a stale .env entry.
+  while IFS= read -r _ln || [[ -n "$_ln" ]]; do
+    [[ -z "$_ln" || "$_ln" == \#* || "$_ln" =~ ^[[:space:]]*$ ]] && continue
+    [[ "$_ln" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || continue
+    _k="${_ln%%=*}"
+    _v="${_ln#*=}"
+    # Strip a single layer of surrounding single/double quotes: `export "$_ln"`
+    # keeps literal quotes inside the value, so NOVITA_API_KEY="…" would send a
+    # Bearer token wrapped in quotes and the API answers HTTP 401.
+    case "$_v" in
+    \"*\")
+      _v="${_v#\"}"
+      _v="${_v%\"}"
+      ;;
+    \'*\')
+      _v="${_v#\'}"
+      _v="${_v%\'}"
+      ;;
+    esac
+    # Skip vars already set UNLESS force-loading an account file, which must
+    # override a lower-priority source (install .env) to honour the active
+    # account selection.
+    [[ -n "${!_k:-}" && -z "$force" ]] && continue
+    # shellcheck disable=SC2163 # dynamic var name parsed from a trusted .env line
+    export "$_k=$_v"
+    # shellcheck disable=SC2034 # consumed by `nv auth status` (commands/auth.sh)
+    NV_ENV_SRC[$_k]="$f"
+  done <"$f"
+  nv::_xtrace_restore "$_nv_xtrace"
+}
+
+# Load the per-user config (survives any install method) BEFORE the local
+# .env, so an explicit env var still wins and the local install file can never
+# override the user's global config. _nv_env_load is a no-op on a missing file.
+_nv_env_load "$NV_CONFIG_HOME/.env"
+[[ -f "$NV_ROOT/.env" ]] && _nv_env_load "$NV_ROOT/.env"
+
+for _NV_LIB_FILE in "$NV_ROOT"/lib/*.sh; do
+  case "$_NV_LIB_FILE" in
+  */common.sh) ;;
+  *) . "$_NV_LIB_FILE" ;;
+  esac
+done
+nv::check_core
+
+_help() {
+  # Slurp the heredoc once via a builtin `read` (no fork), then printf it.
+  # `cat <<'EOF'` would fork cat on every --help / no-args call (~5 ms on macOS).
+  if [[ -z "${_NV_HELP:-}" ]]; then
+    read -r -d '' _NV_HELP <<'EOF' || true
+Novita CLI
+
+Usage: nv <resource> <verb> [flags]   (no args prints this help)
+
+Resources:
+  pod        GPU instances (create, start/stop, CRUD)          — v2 /instances
+  serverless serverless endpoints (create, scale, run jobs, CRUD) — v2 /endpoints
+  catalog    GPU products per category + regions               — v2 /products, /regions
+  template   templates (list, create)                          — v2 /templates
+  cluster    datacentre clusters (read-only)                   — v1 /clusters
+  volume     network storage (create, list)                    — v1 /networkstorages
+  registry   container-registry auths (list)                   — v1 /repository/auths
+  auth       manage API-key accounts in a per-user store
+
+Meta:
+  api        raw namespaced call (escape hatch over nv::api_call; --ns v2|v1)
+  doc        show command / library documentation (nv doc [filter])
+  version / --version / -v   print the installed version
+
+The API has two namespaces under one host: v2 (/gpus/v2, snake_case) and v1
+(/gpu-instance/openapi/v1, camelCase). Each resource routes to its own — you
+never have to pick.
+
+Examples:
+  nv _ping
+  nv catalog gpu
+  nv cluster list
+  nv volume create --name shared-data --size 100 --cluster 5
+  nv pod create --name dev --product <id> --image docker.io/library/ubuntu:22.04
+  nv pod stop <id> && nv pod start <id>
+  nv serverless create --name api --product <id> --image <img> --region <id> \
+      --app my-app --min 0 --max 1 --idle 300
+  nv serverless run <id> --input '{"prompt":"hello"}'
+
+Add --json to list/get commands for raw JSON.
+Add --insecure (or -k, or NV_INSECURE_TLS=1) to skip TLS certificate verification
+  when running from an environment whose CA bundle can't validate the API
+  (e.g. inside an instance). Traffic stays encrypted; the server identity is not checked.
+EOF
+  fi
+  printf '%s\n' "$_NV_HELP"
+}
+
+# nv version / --version / -v. lib/_version.sh (auto-sourced by the lib/*.sh
+# loop below) holds the release version; a dev checkout ships "0.0.0-dev", so we
+# fall back to `git describe` for a meaningful dev version. Returns the version
+# on stdout.
+nv::version() {
+  if { [[ -z "${NV_VERSION:-}" || "${NV_VERSION}" == "0.0.0-dev" ]]; } &&
+    git -C "${NV_ROOT}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git -C "${NV_ROOT}" describe --tags --always 2>/dev/null || printf '%s\n' "${NV_VERSION:-dev}"
+    return
+  fi
+  printf '%s\n' "${NV_VERSION:-dev}"
+}
+
+nv::main() {
+  local resource="${1:-}"
+  case "$resource" in
+  "" | -h | --help | help)
+    _help
+    return 0
+    ;;
+  -v | --version | version)
+    nv::version
+    return 0
+    ;;
+  _ping)
+    # Cheapest authenticated GET: the descriptor supplies the path, but we skip
+    # nv::resource_list because unwrapping and rendering a table only to discard
+    # it proves nothing beyond what the HTTP status already did.
+    _resource_meta pod
+    nv::http GET "$NV_RES_PATH?limit=1" >/dev/null
+    nv::ok "ok: auth works ($NV_BASE_V2)"
+    return 0
+    ;;
+  esac
+  shift
+  # Reject anything that isn't a plain command-module name before we build a path
+  # from it — a crafted `$resource` (e.g. ../../tmp/x) would otherwise be sourced
+  # as code. The allowlist also rejects absolute paths and glob chars.
+  [[ "$resource" =~ ^[A-Za-z0-9_-]+$ ]] ||
+    nv::usage "usage: unknown resource: '$resource' (try: nv --help)"
+  local cmd="$NV_ROOT/commands/$resource.sh"
+  [[ -f "$cmd" ]] || nv::usage "unknown resource: '$resource' (try: nv --help)"
+  . "$cmd"
+  declare -F "nv::cmd_$resource" >/dev/null || nv::die "command module '$resource' missing nv::cmd_$resource"
+  "nv::cmd_$resource" "$@"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  nv::main "$@"
+fi

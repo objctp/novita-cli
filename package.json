@@ -1,0 +1,26 @@
+{
+  "name": "novita-cli",
+  "version": "0.1.0",
+  "description": "A simple CLI for managing Novita AI GPU cloud infrastructure.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "nv": "./bin/nv"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "commands",
+    "LICENSE"
+  ],
+  "keywords": [
+    "novita",
+    "novita-ai",
+    "gpu-cloud",
+    "serverless-gpu",
+    "novita-cli"
+  ],
+  "scripts": {
+    "docs": "scripts/gen-manual.sh"
+  }
+}
