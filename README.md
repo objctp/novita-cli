@@ -1,6 +1,6 @@
 # novita-cli (`nv`)
 
-A POSIX-shell CLI for [Novita AI](https://novita.ai)'s GPU cloud — GPU instances
+A Bash CLI for [Novita AI](https://novita.ai/?ref=nmy3zdr)'s GPU cloud — GPU instances
 ("pods"), serverless endpoints, the product catalog, templates, clusters,
 network storage, and container-registry auths. Written in Bash + jq + curl,
 with no dependencies beyond those three.
@@ -125,11 +125,3 @@ lib/              transport (one curl impl), http clients, args parser,
 commands/         one module per resource + auth/api/doc meta commands
 tests/            bashunit unit + functional suites
 ```
-
-## Status / verification
-
-Endpoints verified against the live docs (2026-08): v2 instance/endpoint
-create bodies, v2 `limit`/`cursor` pagination, v1 storage list/create, v1
-clusters and registry-auth lists. **Unverified** (documented as such in
-`nv doc`): template create route, endpoint PATCH route. Auths are created in
-the Novita console; the registry command is read-only.

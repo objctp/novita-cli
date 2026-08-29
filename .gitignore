@@ -17,6 +17,14 @@ coverage/
 .env
 .cache/
 
+# Docs site build
+site/
+.venv/
+
+# Local docs (personal)
+/CONTRIBUTING.md
+/DOC-FORMAT.md
+
 # Release artefacts (make package)
 /nv-*.tar.gz
 /SHA256SUMS

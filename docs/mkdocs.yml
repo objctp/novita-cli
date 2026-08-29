@@ -1,0 +1,84 @@
+site_name: Novita CLI (nv)
+site_url: https://objctp.github.io/novita-cli/manual/
+repo_url: https://github.com/objctp/novita-cli
+docs_dir: .
+site_dir: ../site/manual
+extra_css:
+- stylesheets/extra.css
+theme:
+  name: material
+  custom_dir: theme
+  features:
+  - navigation.sections
+  - navigation.indexes
+  - navigation.top
+  - content.code.copy
+  - search.suggest
+  palette:
+  - scheme: slate
+    primary: black
+    accent: indigo
+    toggle:
+      icon: material/weather-sunny
+      name: Switch to light mode
+  - scheme: default
+    primary: black
+    accent: indigo
+    toggle:
+      icon: material/weather-night
+      name: Switch to dark mode
+use_directory_urls: true
+markdown_extensions:
+- admonition
+- toc
+- tables
+- fenced_code
+nav:
+- Manual: index.md
+- Api:
+  - api: api.md
+- Auth:
+  - auth: auth.md
+  - login: auth-login.md
+  - logout: auth-logout.md
+  - switch: auth-switch.md
+  - use: auth-use.md
+  - list: auth-list.md
+  - status: auth-status.md
+- Catalog:
+  - catalog: catalog.md
+  - gpu: catalog-gpu.md
+  - serverless: catalog-serverless.md
+  - regions: catalog-regions.md
+- Cluster:
+  - cluster: cluster.md
+  - list: cluster-list.md
+- Doc:
+  - doc: doc.md
+- Pod:
+  - pod: pod.md
+  - list: pod-list.md
+  - get: pod-get.md
+  - create: pod-create.md
+  - start: pod-start.md
+  - stop: pod-stop.md
+  - delete: pod-delete.md
+- Registry:
+  - registry: registry.md
+  - list: registry-list.md
+- Serverless:
+  - serverless: serverless.md
+  - list: serverless-list.md
+  - get: serverless-get.md
+  - create: serverless-create.md
+  - update: serverless-update.md
+  - delete: serverless-delete.md
+  - run: serverless-run.md
+- Template:
+  - template: template.md
+  - list: template-list.md
+  - create: template-create.md
+- Volume:
+  - volume: volume.md
+  - list: volume-list.md
+  - create: volume-create.md
