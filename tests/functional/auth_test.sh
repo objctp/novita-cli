@@ -35,11 +35,21 @@ function test_login_stores_the_key_and_marks_it_active() {
   assert_equals "nv-key-123" "$(grep '^NOVITA_API_KEY=' "$NV_CREDS_DIR/work" | cut -d= -f2-)"
 }
 
+# Permission bits, portable across the BSD (macOS) and GNU (Linux) stat
+# dialects — same probe as lib/common.sh's _warn_if_world_readable.
+function _perms() {
+  if stat -f '%Lp' /dev/null >/dev/null 2>&1; then
+    stat -f '%Lp' "$1"
+  else
+    stat -c '%a' "$1"
+  fi
+}
+
 function test_account_file_is_mode_600_and_dir_700() {
   nv::args_parse --api-key nv-key-123
   _auth_login >/dev/null 2>&1
-  assert_equals "600" "$(stat -f '%Lp' "$NV_CREDS_DIR/default")"
-  assert_equals "700" "$(stat -f '%Lp' "$NV_CREDS_DIR")"
+  assert_equals "600" "$(_perms "$NV_CREDS_DIR/default")"
+  assert_equals "700" "$(_perms "$NV_CREDS_DIR")"
 }
 
 function test_login_reads_the_key_from_stdin_when_piped() {

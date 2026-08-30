@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Probe the stat dialect in the credentials mode test
+
 ## [0.1.0] - 2026-08-30
 
 ### Added
