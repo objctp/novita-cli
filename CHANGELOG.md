@@ -8,6 +8,7 @@
 - Add delete and update verbs
 - Require --type and add update and delete verbs
 - Redesign run around the documented two-surface contract
+- Publish the Homebrew formula to objctp/homebrew-tap
 
 ### Changed
 

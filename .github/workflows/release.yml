@@ -6,8 +6,10 @@ name: release
 #   1. build the universal tarball (nv is bash, so no per-OS/arch matrix) and
 #      its SHA256SUMS, stamping the version into lib/_version.sh;
 #   2. publish the GitHub Release (tarball + SHA256SUMS + changelog notes);
-#   3. publish the npm package novita-cli with OIDC provenance (dry-run gated;
-#      requires an NPM_TOKEN secret — remove this job if you do not publish).
+#   3. publish the npm package @objctp/nv with OIDC provenance (dry-run gated;
+#      requires an NPMJS_TOKEN secret — remove this job if you do not publish);
+#   4. bump the Homebrew formula in objctp/homebrew-tap (brew audit/style/test
+#      gated; committed via a PAT/deploy key).
 on:
   push:
     tags:
@@ -63,7 +65,7 @@ jobs:
             SHA256SUMS
           body: ${{ steps.notes.outputs.notes }}
 
-      # ── npm channel (novita-cli) ──────────────────────────
+      # ── npm channel (@objctp/nv) ──────────────────────────
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
@@ -78,14 +80,80 @@ jobs:
         # publish, and attempting it makes the dry-run fail and block the step below.
         run: npm publish --dry-run --access public
 
-      - name: npm publish novita-cli
+      - name: npm publish @objctp/nv
         # NODE_AUTH_TOKEN carries a publish token; --provenance attaches an OIDC
         # attestation minted from the id-token:write permission above.
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPMJS_TOKEN }}
         run: |
-          if npm view "novita-cli@${GITHUB_REF_NAME}" version >/dev/null 2>&1; then
-            echo "npm: novita-cli@${GITHUB_REF_NAME} already published, skipping"
+          if npm view "@objctp/nv@${GITHUB_REF_NAME}" version >/dev/null 2>&1; then
+            echo "npm: @objctp/nv@${GITHUB_REF_NAME} already published, skipping"
           else
             npm publish --access public --provenance
           fi
+
+      # ── Homebrew channel (objctp/homebrew-tap) ────────────
+      - name: Setup Homebrew
+        # ubuntu-latest has no brew, so install it; otherwise the audit/style/test
+        # gate below would silently no-op and ship an unverified formula.
+        uses: Homebrew/actions/setup-homebrew@2026.08.14.1
+
+      - name: Bump Homebrew formula
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # Install/test the formula we just generated, not the stale one Homebrew
+          # would fetch from the remote tap on auto-update (which clobbers the
+          # local edit and fails the version assertion). The edited formula is
+          # still pushed to objctp/homebrew-tap at the end of this step.
+          export HOMEBREW_NO_AUTO_UPDATE=1
+          : "${TAP_TOKEN:?HOMEBREW_TAP_TOKEN secret is required to push the formula}"
+          SHA256="$(awk '{print $1}' SHA256SUMS)"
+          TAP_DIR="$(mktemp -d)"
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/objctp/homebrew-tap.git" "$TAP_DIR"
+          cd "$TAP_DIR"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Generate Formula/nv.rb. The shebang is rewritten to the brewed Bash
+          # 5+ (macOS ships 3.2), and there is no man page.
+          cat > Formula/nv.rb <<RB
+          class Nv < Formula
+            desc "CLI for managing Novita AI GPU cloud infrastructure"
+            homepage "https://github.com/objctp/novita-cli"
+            url "https://github.com/objctp/novita-cli/releases/download/${VERSION}/nv-${VERSION}.tar.gz"
+            sha256 "${SHA256}"
+            license "MIT"
+
+            depends_on "bash"
+
+            def install
+              inreplace "bin/nv", %r{^#!/usr/bin/env bash}, "#!#{formula_opt_bin("bash")}/bash"
+              prefix.install Dir["bin", "lib", "commands", "LICENSE"]
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/nv version")
+            end
+          end
+          RB
+
+          # Commit the generated formula locally BEFORE tapping/installing. A
+          # `git clone` (which `brew tap` performs) only copies *committed*
+          # state, so an uncommitted edit would be invisible and the stale
+          # released version would be tested. HOMEBREW_NO_AUTO_UPDATE (set above)
+          # stops brew from pulling the remote tap at install time. The push
+          # below still bumps the version in objctp/homebrew-tap.
+          git add Formula/nv.rb
+          git commit -m "nv ${VERSION}"
+
+          brew tap objctp/tap "$TAP_DIR"
+          brew trust objctp/tap
+          brew audit objctp/tap/nv
+          brew style objctp/tap/nv
+          brew install objctp/tap/nv
+          brew test objctp/tap/nv
+
+          git push

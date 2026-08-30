@@ -1,5 +1,5 @@
 {
-  "name": "novita-cli",
+  "name": "@objctp/nv",
   "version": "0.1.0",
   "description": "A simple CLI for managing Novita AI GPU cloud infrastructure.",
   "author": {
@@ -28,8 +28,10 @@
   "keywords": [
     "novita",
     "novita-ai",
-    "gpu-cloud",
-    "serverless-gpu",
+    "novita-rest",
+    "novita-api",
+    "novita-gpu",
+    "novita-serverless-gpu",
     "novita-cli"
   ],
   "scripts": {
