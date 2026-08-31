@@ -127,16 +127,20 @@ Resources:
   cluster    datacentre clusters (read-only)                   — v1 /clusters
   volume     network storage (create, list, update, delete)    — v1 /networkstorages
   registry   container-registry auths (list)                   — v1 /repository/auths
+  account    account balance and credit (read-only)            — basic /billing/balance
+  billing    monthly / usage / fixed-term / apikey bills, transactions — basic /billing
   auth       manage API-key accounts in a per-user store
 
 Meta:
-  api        raw namespaced call (escape hatch over nv::api_call; --ns v2|v1|async)
+  api        raw namespaced call (escape hatch over nv::api_call; --ns v2|v1|basic|async)
   doc        show command / library documentation (nv doc [filter])
+  upgrade    update nv in place (re-runs the installer)
   version / --version / -v   print the installed version
 
-The API has two namespaces under one host: v2 (/gpus/v2, snake_case) and v1
-(/gpu-instance/openapi/v1, camelCase). Each resource routes to its own — you
-never have to pick.
+The API has three namespaces under one host: v2 (/gpus/v2, snake_case), v1
+(/gpu-instance/openapi/v1, camelCase), and basic (/openapi/v1 — the account
+and billing surface, camelCase). Each resource routes to its own — you never
+have to pick.
 
 Examples:
   nv _ping
@@ -193,6 +197,9 @@ nv::main() {
     return 0
     ;;
   esac
+  # One-line daily update notice (background-refreshed cache; TTY-only, never
+  # blocks, skips version/upgrade/help/doc internally).
+  nv::update_check "$resource"
   shift
   # Reject anything that isn't a plain command-module name before we build a path
   # from it — a crafted `$resource` (e.g. ../../tmp/x) would otherwise be sourced

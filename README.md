@@ -2,8 +2,8 @@
 
 A Bash CLI for [Novita AI](https://novita.ai/?ref=nmy3zdr)'s GPU cloud — GPU instances
 ("pods"), serverless endpoints, the product catalog, templates, clusters,
-network storage, and container-registry auths. Written in Bash + jq + curl,
-with no dependencies beyond those three.
+network storage, container-registry auths, and your account's balance and
+bills. Written in Bash + jq + curl, with no dependencies beyond those three.
 
 ```
 Usage: nv <resource> <verb> [flags]
@@ -20,6 +20,9 @@ curl -fsSL https://raw.githubusercontent.com/objctp/novita-cli/main/install.sh |
 
 Overrides: `NV_INSTALL_DIR` (default `~/.nv`), `NV_BINDIR`
 (default `/usr/local/bin`), or pin a version with `bash install.sh --version 1.2.3`.
+Later, `nv upgrade` re-runs the same installer in place (pinned with
+`--version x.y.z`); `nv` also prints a daily one-line notice when a newer
+release exists (`NV_NO_UPDATE_CHECK=1` disables it).
 
 From a checkout:
 
@@ -46,26 +49,27 @@ nv serverless create --name api --product <id> --image <img> \
     --app my-app --region <id> --min 0 --max 1 --idle 300
 nv serverless run <id> --input '{"prompt":"hello"}'   # async endpoint: shared gateway
 nv serverless status <id> <job_id>
+nv account                            # balance and credit
+nv billing monthly --month 2025-12    # monthly bills
 ```
 
 Add `--json` to any list/get for raw JSON, `--jq '<filter>'` to filter, and
 `nv doc <resource> [verb]` for the full reference (arguments, caveats,
 examples — rendered from the source comments).
 
-## One host, two namespaces
+## One host, three namespaces
 
-Novita serves the whole GPU cloud from `https://api.novita.ai` under **two
+Novita serves the whole cloud API from `https://api.novita.ai` under **three
 namespaces** that differ in body casing and pagination:
 
-| | v2 | v1 |
-|---|---|---|
-| Base | `/gpus/v2` | `/gpu-instance/openapi/v1` |
-| Bodies | snake_case (`product_id`, `worker_config`) | camelCase (`clusterId`, `storageName`) |
-| Pagination | `limit` + opaque `cursor` → `next_cursor`/`has_more` | `pageNo` + `pageSize` |
-| Resources | pod, serverless, catalog, template | cluster, volume, registry |
+| | v2 | v1 | basic |
+|---|---|---|---|
+| Base | `/gpus/v2` | `/gpu-instance/openapi/v1` | `/openapi/v1` |
+| Bodies | snake_case (`product_id`, `worker_config`) | camelCase (`clusterId`, `storageName`) | camelCase (`startMonth`, `transactionType`) |
+| Pagination | `limit` + opaque `cursor` → `next_cursor`/`has_more` | `pageNo` + `pageSize` | varies: `page`, `pageNo`, or none |
+| Resources | pod, serverless, catalog, template | cluster, volume, registry | account, billing |
 
 `nv` routes each resource to its namespace automatically — you never pick one.
-The `data` unwrap key is uniform across both.
 
 ## Resources
 
@@ -78,9 +82,12 @@ The `data` unwrap key is uniform across both.
 | `cluster` | v1 `/clusters` | list (read-only) |
 | `volume` | v1 `/networkstorages` | create, list, update, delete |
 | `registry` | v1 `/repository/auths` | list (read-only) |
+| `account` | basic `/billing/balance` | balance (read-only) |
+| `billing` | basic `/billing`, `/bill` | monthly, usage, fixed-term, apikey, transactions |
 | `auth` | — | login, logout, switch/use, list, status |
-| `api` | both | raw namespaced call (`--ns v2\|v1\|async`) |
+| `api` | all | raw namespaced call (`--ns v2\|v1\|basic\|async`) |
 | `doc` | — | embedded reference manual |
+| `upgrade` | — | update nv in place (re-runs the installer) |
 
 Notable behaviours:
 
@@ -119,7 +126,8 @@ make check    # lint + test
 ```
 
 Tests run offline: HTTP doubles stand in for `nv::http` / `nv::http_v1` /
-`nv::http_async` / `nv::http_url`, so no network is touched. Layout:
+`nv::http_basic` / `nv::http_async` / `nv::http_url`, so no network is
+touched. Layout:
 
 ```
 bin/nv            entry point: .env loading, lib sourcing, dispatch

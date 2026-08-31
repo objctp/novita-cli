@@ -40,6 +40,13 @@ function set_up() {
     fi
     printf '%s' "$API_STUB_BODY"
   }
+  nv::http_basic() {
+    printf '%s %s\n' "$1" "$2" >>"$API_CAPTURE"
+    if [[ -n "${3:-}" ]]; then
+      printf '%s' "$3" >"$API_BODY"
+    fi
+    printf '%s' "$API_STUB_BODY"
+  }
 }
 
 function tear_down() {
@@ -64,6 +71,12 @@ function test_ns_async_routes_through_http_async() {
   nv::cmd_api POST /ep-1/run --ns async --body '{"input":{}}' >/dev/null 2>&1
   assert_contains "POST /ep-1/run" "$(<"$API_CAPTURE")"
   assert_contains '{"input":{}}' "$(<"$API_BODY")"
+}
+
+function test_ns_basic_routes_through_http_basic() {
+  rm -f "$API_CAPTURE"
+  nv::cmd_api GET /billing/balance/detail --ns basic >/dev/null 2>&1
+  assert_contains "GET /billing/balance/detail" "$(<"$API_CAPTURE")"
 }
 
 function test_method_is_uppercased() {

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- Add account, billing, and upgrade over the basic namespace
+
 ### Fixed
 
 - Probe the stat dialect in the credentials mode test

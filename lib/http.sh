@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Novita HTTP clients — namespace-addressed (v2/v1/async) wrappers plus the
-# per-endpoint sync-direct invoke. Thin facades over nv::api_call in
+# Novita HTTP clients — namespace-addressed (v2/v1/basic/async) wrappers plus
+# the per-endpoint sync-direct invoke. Thin facades over nv::api_call in
 # lib/transport.sh; all curl lives in the shared transport module. Sourced by
 # bin/nv; not executed directly.
 # shellcheck source=transport.sh
@@ -81,6 +81,19 @@ nv::http() {
 #   $4 - max_time: optional --max-time seconds (default 120)
 nv::http_v1() {
   nv::_http_ns v1 "$1" "$2" "${3:-}" "${4:-}"
+}
+
+# Basic call (https://api.novita.ai/openapi/v1 — account balance and billing;
+# camelCase query params and fields; money fields are 1/10000-USD strings).
+# Pagination varies per endpoint (page, pageNo, or none), so callers build
+# their own query params rather than going through nv::page_query.
+# Arguments:
+#   $1 - method: HTTP method
+#   $2 - path: basic path (e.g. /billing/balance/detail)
+#   $3 - body: optional JSON request body
+#   $4 - max_time: optional --max-time seconds (default 120)
+nv::http_basic() {
+  nv::_http_ns basic "$1" "$2" "${3:-}" "${4:-}"
 }
 
 # Async serverless invocation gateway (https://async-public.serverless.novita.ai

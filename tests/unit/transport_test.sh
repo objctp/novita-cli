@@ -17,6 +17,7 @@ function set_up() {
   export NOVITA_API_KEY="nv-test"
   NV_BASE_V2="https://api.test/gpus/v2"
   NV_BASE_V1="https://api.test/gpu-instance/openapi/v1"
+  NV_BASE_BASIC="https://api.test/openapi/v1"
   NV_BASE_ASYNC="https://async.test/v1"
   NV_ARGS=()
   CURL_CAPTURE="$(mktemp)"
@@ -54,6 +55,10 @@ function test_ns_base_resolves_v1_to_the_openapi_base() {
 
 function test_ns_base_resolves_async_to_the_shared_invocation_host() {
   assert_equals "https://async.test/v1" "$(_nv_ns_base async)"
+}
+
+function test_ns_base_resolves_basic_to_the_billing_base() {
+  assert_equals "https://api.test/openapi/v1" "$(_nv_ns_base basic)"
 }
 
 function test_ns_base_rejects_unknown_namespaces() {
@@ -95,6 +100,13 @@ function test_http_async_routes_paths_to_the_shared_invocation_host() {
   CURL_BODY='{"id":"job-1","status":"PENDING"}'
   nv::http_async POST /ep-1-my-app/run '{"input":{}}' >/dev/null 2>&1
   assert_contains "https://async.test/v1/ep-1-my-app/run" "$(<"$CURL_CAPTURE")"
+}
+
+function test_http_basic_routes_paths_to_the_billing_base() {
+  curl() { _curl_double "$@"; }
+  CURL_BODY='{"availableBalance":"1000000"}'
+  nv::http_basic GET /billing/balance/detail >/dev/null 2>&1
+  assert_contains "https://api.test/openapi/v1/billing/balance/detail" "$(<"$CURL_CAPTURE")"
 }
 
 function test_http_sends_bearer_header_from_a_temp_file_not_argv() {

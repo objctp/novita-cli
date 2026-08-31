@@ -35,6 +35,9 @@ markdown_extensions:
 - fenced_code
 nav:
 - Manual: index.md
+- Account:
+  - account: account.md
+  - balance: account-balance.md
 - Api:
   - api: api.md
 - Auth:
@@ -45,6 +48,13 @@ nav:
   - use: auth-use.md
   - list: auth-list.md
   - status: auth-status.md
+- Billing:
+  - billing: billing.md
+  - monthly: billing-monthly.md
+  - usage: billing-usage.md
+  - fixed-term: billing-fixed-term.md
+  - apikey: billing-apikey.md
+  - transactions: billing-transactions.md
 - Catalog:
   - catalog: catalog.md
   - gpu: catalog-gpu.md
@@ -83,6 +93,8 @@ nav:
   - create: template-create.md
   - update: template-update.md
   - delete: template-delete.md
+- Upgrade:
+  - upgrade: upgrade.md
 - Volume:
   - volume: volume.md
   - list: volume-list.md

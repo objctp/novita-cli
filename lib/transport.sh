@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Novita transport — the single curl implementation shared by every client.
 # Novita serves the GPU cloud API from ONE host (https://api.novita.ai) under
-# TWO namespaces: v2 (/gpus/v2, snake_case, cursor-paginated) and v1
-# (/gpu-instance/openapi/v1, camelCase, pageNo-paginated); async serverless
-# invocation uses a THIRD base off that host entirely
+# THREE namespaces: v2 (/gpus/v2, snake_case, cursor-paginated), v1
+# (/gpu-instance/openapi/v1, camelCase, pageNo-paginated), and basic
+# (/openapi/v1, camelCase — the account/billing surface); async serverless
+# invocation uses a FOURTH base off that host entirely
 # (https://async-public.serverless.novita.ai/v1), and sync-direct invokes go
 # to each endpoint's own `url`. All auth-header, payload, timeout, and status
 # handling lives here; the public clients in lib/http.sh are thin facades over
@@ -34,9 +35,9 @@ _nv_insecure_warn() {
 }
 
 # Base URL for an API namespace. Resolved at call time so env overrides of
-# NV_BASE_V2 / NV_BASE_V1 / NV_BASE_ASYNC (set in lib/common.sh) take effect.
-# The sync-direct serverless invoke has no namespace base of its own — each
-# endpoint record carries its own `url` field, invoked verbatim (see
+# NV_BASE_V2 / NV_BASE_V1 / NV_BASE_BASIC / NV_BASE_ASYNC (set in lib/common.sh)
+# take effect. The sync-direct serverless invoke has no namespace base of its
+# own — each endpoint record carries its own `url` field, invoked verbatim (see
 # nv::http_url in lib/http.sh). Every client routes through here, so the
 # insecure-transport guard below covers all of them.
 _nv_ns_base() {
@@ -44,6 +45,7 @@ _nv_ns_base() {
   case "$1" in
   v2) base="${NV_BASE_V2:-https://api.novita.ai/gpus/v2}" ;;
   v1) base="${NV_BASE_V1:-https://api.novita.ai/gpu-instance/openapi/v1}" ;;
+  basic) base="${NV_BASE_BASIC:-https://api.novita.ai/openapi/v1}" ;;
   async) base="${NV_BASE_ASYNC:-https://async-public.serverless.novita.ai/v1}" ;;
   *) return 1 ;;
   esac
@@ -125,7 +127,7 @@ _nv_cleanup_tmp() {
 # then delegates to _curl_json. Dies only on an unknown namespace (a programming
 # error); transport/HTTP outcomes are left to the caller's die policy.
 # Arguments:
-#   $1 - ns: API namespace (v2 | v1)
+#   $1 - ns: API namespace (v2 | v1 | basic | async)
 #   $2 - method: HTTP method (GET/POST/DELETE/...)
 #   $3 - path: namespace path (e.g. /instances, "/instances/$id")
 #   $4 - body: optional JSON request body

@@ -36,6 +36,18 @@ NV_TIMEOUT_INVOKE=300
 # API ceiling on --limit (page size) for the v2 cursor-paginated lists.
 NV_PAGE_LIMIT_MAX=1000
 
+# Page size used when a list endpoint REQUIRES pagination params and the user
+# gave none (the billing transaction list demands pageNo/pageSize).
+NV_DEFAULT_PAGE_SIZE=20
+
+###
+### :::: release & self-update :::: ############################################
+###
+
+# GitHub slug the `nv upgrade` command re-runs install.sh from (and the
+# update-check polls for a newer tag). Keep in step with install.sh's NV_REPO.
+NV_UPGRADE_REPO="${NV_UPGRADE_REPO:-objctp/novita-cli}"
+
 ###
 ### :::: default sizes & paths :::: ############################################
 ###

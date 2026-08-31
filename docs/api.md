@@ -7,7 +7,7 @@ and error policy live in lib/transport.sh behind that seam. It prints the
 response body, and dies on HTTP 400 or above with the API's own message.
 
 ```
-nv api <METHOD> <path> [--body <json>] [--ns v2|v1|async]
+nv api <METHOD> <path> [--body <json>] [--ns v2|v1|basic|async]
               [--jq <filter>] [--limit N] [--cursor <c>]
 ```
 
@@ -22,8 +22,9 @@ nv api <METHOD> <path> [--body <json>] [--ns v2|v1|async]
 
 ```
   --body <json>  request body; prefix with @ to read a file
-  --ns v2|v1|async
+  --ns v2|v1|basic|async
                  v2 = /gpus/v2 (default) | v1 = /gpu-instance/openapi/v1 |
+                 basic = /openapi/v1 (account/billing) |
                  async = the shared async invocation gateway
   --jq <filter>  jq filter applied to the response (implies JSON output)
   --limit N      cap the number of (top-level-array) items returned

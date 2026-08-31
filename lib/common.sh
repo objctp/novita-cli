@@ -16,14 +16,18 @@ NV_ROOT="${NV_ROOT:-$(cd "${BASH_SOURCE[0]%/*}/.." && pwd)}"
 # lib/constants.sh. Sourced here so every consumer — including the test harnesses
 # that source common.sh directly — has them without a separate include.
 . "$NV_ROOT/lib/constants.sh"
-# One host, two API namespaces (https://api.novita.ai):
+# One host, three API namespaces (https://api.novita.ai):
 #   v2 — /gpus/v2/...        snake_case bodies (instances, endpoints, products,
 #                            templates, regions) with cursor pagination
 #   v1 — /gpu-instance/openapi/v1/...  camelCase bodies (clusters, network
 #                            storage, repository auths) with pageNo pagination
+#   basic — /openapi/v1/...  camelCase (account balance, billing); pagination
+#                            varies per endpoint (page/pageSize, pageNo/pageSize
+#                            or none — see commands/billing.sh)
 # Override to pin a staging host. Route by resource, not by a single "plane".
 NV_BASE_V2="${NV_BASE_V2:-https://api.novita.ai/gpus/v2}"
 NV_BASE_V1="${NV_BASE_V1:-https://api.novita.ai/gpu-instance/openapi/v1}"
+NV_BASE_BASIC="${NV_BASE_BASIC:-https://api.novita.ai/openapi/v1}"
 # The async serverless invocation gateway is a THIRD base, off api.novita.ai
 # entirely: async-endpoint jobs submit there, never to the endpoint's own url
 # (which serves the customer's HTTP service on sync endpoints).

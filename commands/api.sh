@@ -8,7 +8,7 @@
 # and error policy live in lib/transport.sh behind that seam. It prints the
 # response body, and dies on HTTP 400 or above with the API's own message.
 #
-# Usage: nv api <METHOD> <path> [--body <json>] [--ns v2|v1|async]
+# Usage: nv api <METHOD> <path> [--body <json>] [--ns v2|v1|basic|async]
 #               [--jq <filter>] [--limit N] [--cursor <c>]
 #
 # Arguments:
@@ -17,8 +17,9 @@
 #
 # Options:
 #   --body <json>  request body; prefix with @ to read a file
-#   --ns v2|v1|async
+#   --ns v2|v1|basic|async
 #                  v2 = /gpus/v2 (default) | v1 = /gpu-instance/openapi/v1 |
+#                  basic = /openapi/v1 (account/billing) |
 #                  async = the shared async invocation gateway
 #   --jq <filter>  jq filter applied to the response (implies JSON output)
 #   --limit N      cap the number of (top-level-array) items returned
@@ -44,6 +45,7 @@ HTTP >= 400 with the API's error message.
   <path>       path under the namespace base (a leading / is optional)
   --body       request body (JSON string); prefix with @ to read a file
   --ns         v2 = /gpus/v2 (default) | v1 = /gpu-instance/openapi/v1
+               basic = /openapi/v1 (account/billing) | async = async gateway
   --jq         jq filter applied to the response (implies JSON output)
                note: jq's `env` exposes the shell environment, including your
                NOVITA_API_KEY — never run `nv api … --jq 'env'` on a shared
@@ -69,7 +71,7 @@ nv::cmd_api() {
     _api_help
     return 0
   }
-  [[ -n "$method" ]] || nv::usage "usage: nv api <METHOD> <path> [--body <json>] [--ns v2|v1|async] [--jq <filter>]"
+  [[ -n "$method" ]] || nv::usage "usage: nv api <METHOD> <path> [--body <json>] [--ns v2|v1|basic|async] [--jq <filter>]"
   method="$(printf '%s' "$method" | tr '[:lower:]' '[:upper:]')"
   local path
   nv::require_pos path "usage: nv api $method <path>"
@@ -85,8 +87,9 @@ nv::cmd_api() {
   case "$ns" in
   v2) out="$(nv::http "$method" "$path" "$body")" ;;
   v1) out="$(nv::http_v1 "$method" "$path" "$body")" ;;
+  basic) out="$(nv::http_basic "$method" "$path" "$body")" ;;
   async) out="$(nv::http_async "$method" "$path" "$body")" ;;
-  *) nv::usage "unknown --ns '$ns' (v2|v1|async)" ;;
+  *) nv::usage "unknown --ns '$ns' (v2|v1|basic|async)" ;;
   esac
   nv::paginate out
   if [[ -n "$jqf" ]]; then
